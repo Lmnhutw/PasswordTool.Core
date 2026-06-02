@@ -1,6 +1,9 @@
 using PasswordTool.Core.Abstractions;
+using PasswordTool.Core.Hashers.Educational;
+using PasswordTool.Core.Hashers.Secure;
 using PasswordTool.Core.Hashers;
 using PasswordTool.Core.Models;
+using PasswordTool.Core.Options;
 
 namespace PasswordTool.Core.Registry;
 
@@ -42,13 +45,6 @@ public sealed class PasswordHasherRegistry : IPasswordHasherRegistry
             SecurityCategory = PasswordHasherSecurityCategory.ProductionSafe,
             IsDefaultRecommendation = false,
             Description = "Memory-hard password hashing algorithm with N, r, and p parameters."
-        },
-        new()
-        {
-            AlgorithmName = PasswordHasherNames.AspNetCoreIdentity,
-            SecurityCategory = PasswordHasherSecurityCategory.FrameworkFormat,
-            IsDefaultRecommendation = false,
-            Description = "Framework-specific ASP.NET Core Identity password hash format."
         },
         new()
         {
@@ -101,6 +97,20 @@ public sealed class PasswordHasherRegistry : IPasswordHasherRegistry
 
     public IPasswordHasher GetHasher(string algorithmName)
     {
-        throw new NotImplementedException("Hasher construction will be added when algorithm implementations are built.");
+        return algorithmName switch
+        {
+            PasswordHasherNames.Argon2id => new Argon2idPasswordHasher(new Argon2idOptions()),
+            PasswordHasherNames.Bcrypt => new BcryptPasswordHasher(new BcryptOptions()),
+            PasswordHasherNames.Pbkdf2Sha256 => new Pbkdf2Sha256PasswordHasher(new Pbkdf2Options()),
+            PasswordHasherNames.Pbkdf2Sha512 => new Pbkdf2Sha512PasswordHasher(new Pbkdf2Options()),
+            PasswordHasherNames.Scrypt => new ScryptPasswordHasher(new ScryptOptions()),
+            PasswordHasherNames.Md5 => new Md5EducationalHasher(),
+            PasswordHasherNames.Sha1 => new Sha1EducationalHasher(),
+            PasswordHasherNames.Sha256Unsalted => new Sha256UnsaltedEducationalHasher(),
+            PasswordHasherNames.Sha512Unsalted => new Sha512UnsaltedEducationalHasher(),
+            PasswordHasherNames.Sha256Salted => new Sha256SaltedEducationalHasher(),
+            PasswordHasherNames.Sha512Salted => new Sha512SaltedEducationalHasher(),
+            _ => throw new ArgumentException($"Unknown password hashing algorithm '{algorithmName}'.", nameof(algorithmName))
+        };
     }
 }

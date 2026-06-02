@@ -10,6 +10,7 @@ public sealed record PasswordHashInfo
     public int? WorkFactor { get; init; }
     public int? MemoryCost { get; init; }
     public int? Parallelism { get; init; }
+    public int? HashSize { get; init; }
     public bool IsSecureForPasswordStorage { get; init; }
     public string Notes { get; init; } = string.Empty;
 }
