@@ -33,12 +33,12 @@ public partial class MainForm : Form
     public MainForm()
     {
         InitializeComponent();
-        BuildInterface();
         LoadAlgorithmOptions();
     }
 
     private void BuildInterface()
     {
+        Controls.Clear();
         Text = "Password Hashing Learning Tool";
         StartPosition = FormStartPosition.CenterScreen;
         Padding = new Padding(16);
@@ -270,7 +270,8 @@ public partial class MainForm : Form
 
     private static HashAlgorithmOption ToOption(PasswordHasherDescriptor descriptor)
     {
-        var isRecommended = descriptor.SecurityCategory == PasswordHasherSecurityCategory.ProductionSafe;
+        var isRecommended = descriptor.SecurityCategory is PasswordHasherSecurityCategory.ProductionSafe
+            or PasswordHasherSecurityCategory.FrameworkFormat;
         var suffix = descriptor.SecurityCategory == PasswordHasherSecurityCategory.EducationalOnly
             ? " (educational only)"
             : descriptor.IsDefaultRecommendation

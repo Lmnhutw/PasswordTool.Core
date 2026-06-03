@@ -21,5 +21,6 @@ partial class MainForm
         ClientSize = new Size(1000, 700);
         MinimumSize = new Size(900, 600);
         Text = "Password Hashing Tool";
+        BuildInterface();
     }
 }

@@ -13,6 +13,7 @@ public sealed class HasherBehaviorTests
     [InlineData(PasswordHasherNames.Pbkdf2Sha256)]
     [InlineData(PasswordHasherNames.Pbkdf2Sha512)]
     [InlineData(PasswordHasherNames.Scrypt)]
+    [InlineData(PasswordHasherNames.AspNetCoreIdentity)]
     [InlineData(PasswordHasherNames.Md5)]
     [InlineData(PasswordHasherNames.Sha1)]
     [InlineData(PasswordHasherNames.Sha256Unsalted)]

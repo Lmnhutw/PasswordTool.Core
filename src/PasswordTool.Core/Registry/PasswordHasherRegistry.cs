@@ -1,5 +1,6 @@
 using PasswordTool.Core.Abstractions;
 using PasswordTool.Core.Hashers.Educational;
+using PasswordTool.Core.Hashers.Identity;
 using PasswordTool.Core.Hashers.Secure;
 using PasswordTool.Core.Hashers;
 using PasswordTool.Core.Models;
@@ -45,6 +46,13 @@ public sealed class PasswordHasherRegistry : IPasswordHasherRegistry
             SecurityCategory = PasswordHasherSecurityCategory.ProductionSafe,
             IsDefaultRecommendation = false,
             Description = "Memory-hard password hashing algorithm with N, r, and p parameters."
+        },
+        new()
+        {
+            AlgorithmName = PasswordHasherNames.AspNetCoreIdentity,
+            SecurityCategory = PasswordHasherSecurityCategory.FrameworkFormat,
+            IsDefaultRecommendation = false,
+            Description = "ASP.NET Core Identity framework format, usually PBKDF2-based internally."
         },
         new()
         {
@@ -104,6 +112,7 @@ public sealed class PasswordHasherRegistry : IPasswordHasherRegistry
             PasswordHasherNames.Pbkdf2Sha256 => new Pbkdf2Sha256PasswordHasher(new Pbkdf2Options()),
             PasswordHasherNames.Pbkdf2Sha512 => new Pbkdf2Sha512PasswordHasher(new Pbkdf2Options()),
             PasswordHasherNames.Scrypt => new ScryptPasswordHasher(new ScryptOptions()),
+            PasswordHasherNames.AspNetCoreIdentity => new AspNetCoreIdentityPasswordHasherAdapter(),
             PasswordHasherNames.Md5 => new Md5EducationalHasher(),
             PasswordHasherNames.Sha1 => new Sha1EducationalHasher(),
             PasswordHasherNames.Sha256Unsalted => new Sha256UnsaltedEducationalHasher(),

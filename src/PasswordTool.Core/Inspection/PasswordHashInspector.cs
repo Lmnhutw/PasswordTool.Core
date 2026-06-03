@@ -1,5 +1,6 @@
 using PasswordTool.Core.Abstractions;
 using PasswordTool.Core.Hashers;
+using PasswordTool.Core.Hashers.Identity;
 using PasswordTool.Core.Models;
 using PasswordTool.Core.Registry;
 using PasswordTool.Core.Utilities;
@@ -50,6 +51,11 @@ public sealed class PasswordHashInspector : IPasswordHashInspector
             || storedHash.StartsWith("$2y$", StringComparison.Ordinal))
         {
             return PasswordHasherNames.Bcrypt;
+        }
+
+        if (AspNetCoreIdentityPasswordHasherAdapter.CanInspect(storedHash))
+        {
+            return PasswordHasherNames.AspNetCoreIdentity;
         }
 
         if (!HashParser.TryParseKeyValueFormat(storedHash, out var formatName, out _))
