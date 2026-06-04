@@ -52,7 +52,7 @@ public sealed class Argon2idPasswordHasher : IPasswordHasher
             {
                 AlgorithmName = "ARGON2ID",
                 IsSecureForPasswordStorage = false,
-                Notes = "Invalid Argon2id hash format."
+                Notes = "Invalid Argon2id hash format or Base64 value."
             };
         }
 

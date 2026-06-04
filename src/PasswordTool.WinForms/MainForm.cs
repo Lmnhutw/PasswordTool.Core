@@ -18,6 +18,9 @@ public partial class MainForm : Form
     private readonly ComboBox algorithmComboBox = new();
     private readonly Label algorithmDescriptionLabel = new();
     private readonly TextBox generatedHashTextBox = new();
+    private readonly TextBox generatedSaltBase64TextBox = new();
+    private readonly TextBox generatedHashBase64TextBox = new();
+    private readonly Label base64StorageGuidanceLabel = new();
     private readonly Button generateHashButton = new();
     private readonly Button copyHashButton = new();
 
@@ -49,7 +52,7 @@ public partial class MainForm : Form
             ColumnCount = 1,
             RowCount = 3
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 245));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 345));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 235));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -65,11 +68,14 @@ public partial class MainForm : Form
         var group = CreateGroupBox("Password generation");
 
         var layout = CreateSectionGrid();
-        layout.RowCount = 5;
+        layout.RowCount = 8;
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
 
         passwordInput.Dock = DockStyle.Fill;
@@ -109,6 +115,16 @@ public partial class MainForm : Form
         generatedHashTextBox.ScrollBars = ScrollBars.Vertical;
         generatedHashTextBox.ReadOnly = true;
 
+        generatedSaltBase64TextBox.Dock = DockStyle.Fill;
+        generatedSaltBase64TextBox.ReadOnly = true;
+
+        generatedHashBase64TextBox.Dock = DockStyle.Fill;
+        generatedHashBase64TextBox.ReadOnly = true;
+
+        base64StorageGuidanceLabel.Dock = DockStyle.Fill;
+        base64StorageGuidanceLabel.Text = "Store the complete generated hash string in one PasswordHash text column. Salt and hash are encoded as Base64 so they can be stored as text. Base64 is not encryption.";
+        base64StorageGuidanceLabel.TextAlign = ContentAlignment.MiddleLeft;
+
         copyHashButton.Text = "Copy Hash";
         copyHashButton.Width = 120;
         copyHashButton.Click += CopyHashButton_Click;
@@ -121,8 +137,14 @@ public partial class MainForm : Form
         layout.Controls.Add(generateHashButton, 1, 2);
         layout.Controls.Add(CreateLabel("Generated hash"), 0, 3);
         layout.Controls.Add(generatedHashTextBox, 1, 3);
-        layout.Controls.Add(new Panel { Dock = DockStyle.Fill }, 0, 4);
-        layout.Controls.Add(copyHashButton, 1, 4);
+        layout.Controls.Add(CreateLabel("Salt (Base64)"), 0, 4);
+        layout.Controls.Add(generatedSaltBase64TextBox, 1, 4);
+        layout.Controls.Add(CreateLabel("Hash output (Base64)"), 0, 5);
+        layout.Controls.Add(generatedHashBase64TextBox, 1, 5);
+        layout.Controls.Add(new Panel { Dock = DockStyle.Fill }, 0, 6);
+        layout.Controls.Add(base64StorageGuidanceLabel, 1, 6);
+        layout.Controls.Add(new Panel { Dock = DockStyle.Fill }, 0, 7);
+        layout.Controls.Add(copyHashButton, 1, 7);
 
         group.Controls.Add(layout);
         return group;
@@ -312,6 +334,7 @@ public partial class MainForm : Form
         {
             var hash = hasher.HashPassword(passwordInput.Text);
             generatedHashTextBox.Text = hash;
+            RenderGeneratedBase64Components(hash);
             storedHashInput.Text = hash;
             verificationResultLabel.Text = "Result: generated hash copied to verification input";
             verificationResultLabel.ForeColor = SystemColors.ControlText;
@@ -400,8 +423,8 @@ public partial class MainForm : Form
         inspectionGrid.Rows.Clear();
         AddInspectionRow("Algorithm name", info.AlgorithmName);
         AddInspectionRow("Version", info.Version);
-        AddInspectionRow("Salt", info.Salt);
-        AddInspectionRow("Hash value", info.Hash);
+        AddInspectionRow("Salt (Base64)", info.Salt);
+        AddInspectionRow("Hash value (Base64)", info.Hash);
         AddInspectionRow("Iterations", info.Iterations);
         AddInspectionRow("Work factor", info.WorkFactor);
         AddInspectionRow("Memory cost", info.MemoryCost);
@@ -409,6 +432,26 @@ public partial class MainForm : Form
         AddInspectionRow("Hash size", info.HashSize);
         AddInspectionRow("Secure for password storage", info.IsSecureForPasswordStorage ? "Yes" : "No");
         AddInspectionRow("Notes / warnings", info.Notes);
+    }
+
+    private void RenderGeneratedBase64Components(string storedHash)
+    {
+        var info = hashInspector.Inspect(storedHash);
+        if (!UsesBase64ComponentEncoding(info))
+        {
+            generatedSaltBase64TextBox.Text = string.Empty;
+            generatedHashBase64TextBox.Text = string.Empty;
+            return;
+        }
+
+        generatedSaltBase64TextBox.Text = info.Salt ?? string.Empty;
+        generatedHashBase64TextBox.Text = info.Hash ?? string.Empty;
+    }
+
+    private static bool UsesBase64ComponentEncoding(PasswordHashInfo info)
+    {
+        return !info.AlgorithmName.StartsWith("bcrypt", StringComparison.OrdinalIgnoreCase)
+            && (!string.IsNullOrWhiteSpace(info.Salt) || !string.IsNullOrWhiteSpace(info.Hash));
     }
 
     private void AddInspectionRow(string property, object? value)

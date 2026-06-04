@@ -66,23 +66,4 @@ public static class HashParser
         }
     }
 
-    public static bool TryGetHex(Dictionary<string, string> values, string key, out byte[] bytes)
-    {
-        bytes = [];
-
-        if (!values.TryGetValue(key, out var rawValue))
-        {
-            return false;
-        }
-
-        try
-        {
-            bytes = Convert.FromHexString(rawValue);
-            return true;
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
-    }
 }

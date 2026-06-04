@@ -46,6 +46,70 @@ public sealed class HasherBehaviorTests
         Assert.False(info.IsSecureForPasswordStorage);
     }
 
+    [Theory]
+    [InlineData(PasswordHasherNames.Pbkdf2Sha256, "PBKDF2-SHA256")]
+    [InlineData(PasswordHasherNames.Pbkdf2Sha512, "PBKDF2-SHA512")]
+    public void Pbkdf2_Stored_Format_Uses_Requested_Base64_Fields(string algorithmName, string formatName)
+    {
+        var hasher = new PasswordHasherRegistry().GetHasher(algorithmName);
+
+        var storedHash = hasher.HashPassword("correct horse battery staple");
+
+        Assert.StartsWith($"{formatName}$v=1$iter=210000$salt=", storedHash);
+        AssertBase64Field(storedHash, "salt");
+        AssertBase64Field(storedHash, "hash");
+    }
+
+    [Theory]
+    [InlineData(PasswordHasherNames.Scrypt)]
+    public void Scrypt_Stored_Format_Uses_Requested_Base64_Fields(string algorithmName)
+    {
+        var hasher = new PasswordHasherRegistry().GetHasher(algorithmName);
+
+        var storedHash = hasher.HashPassword("correct horse battery staple");
+
+        Assert.StartsWith("SCRYPT$v=1$N=16384$r=8$p=1$salt=", storedHash);
+        AssertBase64Field(storedHash, "salt");
+        AssertBase64Field(storedHash, "hash");
+    }
+
+    [Theory]
+    [InlineData(PasswordHasherNames.Md5, "LEGACY-MD5", false)]
+    [InlineData(PasswordHasherNames.Sha1, "LEGACY-SHA1", false)]
+    [InlineData(PasswordHasherNames.Sha256Unsalted, "LEGACY-SHA256", false)]
+    [InlineData(PasswordHasherNames.Sha512Unsalted, "LEGACY-SHA512", false)]
+    [InlineData(PasswordHasherNames.Sha256Salted, "LEGACY-SHA256-SALTED", true)]
+    [InlineData(PasswordHasherNames.Sha512Salted, "LEGACY-SHA512-SALTED", true)]
+    public void Legacy_Stored_Format_Uses_Base64_Hash_And_Salt_When_Present(
+        string algorithmName,
+        string formatName,
+        bool hasSalt)
+    {
+        var hasher = new PasswordHasherRegistry().GetHasher(algorithmName);
+
+        var storedHash = hasher.HashPassword("correct horse battery staple");
+
+        Assert.StartsWith(formatName, storedHash);
+        if (hasSalt)
+        {
+            AssertBase64Field(storedHash, "salt");
+        }
+
+        AssertBase64Field(storedHash, "hash");
+    }
+
+    [Fact]
+    public void Inspector_Returns_User_Friendly_Invalid_Info_For_Bad_Base64()
+    {
+        var inspector = new PasswordHashInspector();
+
+        var info = inspector.Inspect("PBKDF2-SHA256$v=1$iter=210000$salt=not-valid-base64$hash=also-not-valid");
+
+        Assert.Equal("PBKDF2-SHA256", info.AlgorithmName);
+        Assert.False(info.IsSecureForPasswordStorage);
+        Assert.Contains("Base64", info.Notes);
+    }
+
     [Fact]
     public void Scrypt_Matches_Rfc7914_Test_Vector()
     {
@@ -64,5 +128,12 @@ public sealed class HasherBehaviorTests
             "C727AFB94A83EE6D8360CBDFA2CC0640";
 
         Assert.Equal(expected, Convert.ToHexString(actual));
+    }
+
+    private static void AssertBase64Field(string storedHash, string key)
+    {
+        Assert.True(HashParser.TryParseKeyValueFormat(storedHash, out _, out var values));
+        Assert.True(values.TryGetValue(key, out var encoded), $"Missing {key} field.");
+        Assert.NotEmpty(Convert.FromBase64String(encoded));
     }
 }

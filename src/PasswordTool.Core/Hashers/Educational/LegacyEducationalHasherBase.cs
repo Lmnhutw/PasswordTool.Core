@@ -32,8 +32,8 @@ public abstract class LegacyEducationalHasherBase : IPasswordHasher
         var hash = ComputeHash(password, salt);
 
         return UsesSalt
-            ? $"{FormatName}$salt={Convert.ToBase64String(salt)}$hash={Convert.ToHexString(hash)}"
-            : $"{FormatName}$hash={Convert.ToHexString(hash)}";
+            ? $"{FormatName}$salt={Convert.ToBase64String(salt)}$hash={Convert.ToBase64String(hash)}"
+            : $"{FormatName}$hash={Convert.ToBase64String(hash)}";
     }
 
     public bool VerifyPassword(string password, string storedHash)
@@ -65,7 +65,7 @@ public abstract class LegacyEducationalHasherBase : IPasswordHasher
         {
             AlgorithmName = FormatName,
             Salt = UsesSalt ? Convert.ToBase64String(salt) : null,
-            Hash = Convert.ToHexString(hash),
+            Hash = Convert.ToBase64String(hash),
             HashSize = hash.Length,
             IsSecureForPasswordStorage = false,
             Notes = Warning
@@ -94,7 +94,7 @@ public abstract class LegacyEducationalHasherBase : IPasswordHasher
 
         if (!HashParser.TryParseKeyValueFormat(storedHash, out var algorithmName, out var values)
             || !string.Equals(algorithmName, FormatName, StringComparison.OrdinalIgnoreCase)
-            || !HashParser.TryGetHex(values, "hash", out hash)
+            || !HashParser.TryGetBase64(values, "hash", out hash)
             || hash.Length == 0)
         {
             return false;

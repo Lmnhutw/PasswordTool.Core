@@ -18,8 +18,8 @@ partial class MainForm
     {
         components = new System.ComponentModel.Container();
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(1000, 700);
-        MinimumSize = new Size(900, 600);
+        ClientSize = new Size(1000, 820);
+        MinimumSize = new Size(900, 720);
         Text = "Password Hashing Tool";
         BuildInterface();
     }

@@ -51,7 +51,7 @@ public sealed class ScryptPasswordHasher : IPasswordHasher
             {
                 AlgorithmName = "SCRYPT",
                 IsSecureForPasswordStorage = false,
-                Notes = "Invalid scrypt hash format."
+                Notes = "Invalid scrypt hash format or Base64 value."
             };
         }
 

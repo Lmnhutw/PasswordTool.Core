@@ -64,7 +64,7 @@ public abstract class Pbkdf2PasswordHasherBase : IPasswordHasher
     {
         if (!TryRead(storedHash, out var iterations, out var salt, out var hash))
         {
-            return InvalidInfo("Invalid PBKDF2 hash format.");
+            return InvalidInfo("Invalid PBKDF2 hash format or Base64 value.");
         }
 
         return new PasswordHashInfo
