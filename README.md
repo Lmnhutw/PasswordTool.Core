@@ -1,6 +1,6 @@
 # PasswordTool
 
-Local password hashing learning tool built with C# and .NET.
+Local encrypted password vault built with C# and .NET WinForms.
 
 ## Prerequisites
 
@@ -27,6 +27,13 @@ If you already downloaded the source as a ZIP, extract it and open a terminal in
 
 ## Restore and Build
 
+Required package references:
+
+```powershell
+dotnet add src\PasswordTool.Core\PasswordTool.Core.csproj package Otp.NET
+dotnet add src\PasswordTool.WinForms\PasswordTool.WinForms.csproj package QRCoder
+```
+
 Restore NuGet packages:
 
 ```powershell
@@ -47,7 +54,9 @@ Run the WinForms application from source:
 dotnet run --project src\PasswordTool.WinForms\PasswordTool.WinForms.csproj
 ```
 
-The desktop window opens locally. The app does not require a database, web server, login system, or internet connection after packages are restored.
+The desktop window opens locally. On first launch, the app creates a Master Password, sets up Microsoft Authenticator or Google Authenticator with a QR code, and creates an empty encrypted vault.
+
+The app does not require a database, cloud service, web server, login system, or internet connection after packages are restored.
 
 ## Run Tests
 
@@ -75,7 +84,24 @@ src\PasswordTool.WinForms\bin\Release\net10.0-windows\win-x64\publish\PasswordTo
 PasswordTool.slnx
 src/
   PasswordTool.Core/
+    Models/
+      VaultItem.cs
+      VaultData.cs
+      AppConfig.cs
+    Services/
+      EncryptionService.cs
+      MasterPasswordService.cs
+      TotpService.cs
+      VaultStorageService.cs
+      VaultService.cs
   PasswordTool.WinForms/
+    MainForm.cs
+    CreateMasterPasswordForm.cs
+    UnlockVaultForm.cs
+    SetupAuthenticatorForm.cs
+    VerifyTotpForm.cs
+    VaultForm.cs
+    VaultItemEditorForm.cs
   PasswordTool.Api/
 tests/
   PasswordTool.Core.Tests/
@@ -85,9 +111,19 @@ docs/
 
 ## Projects
 
-- `PasswordTool.Core`: reusable password hashing contracts, models, options, hashers, inspection, and security helpers.
-- `PasswordTool.WinForms`: local desktop UI. This project calls `PasswordTool.Core` and must not contain hashing logic.
+- `PasswordTool.Core`: reusable vault business logic, models, encryption, encrypted storage, TOTP verification, and existing password-hashing helpers.
+- `PasswordTool.WinForms`: local desktop UI. This project calls `PasswordTool.Core` and must not contain encryption or key-derivation logic.
 - `PasswordTool.Api`: optional ASP.NET Core Minimal API boundary for future service access. This project calls `PasswordTool.Core` and must not duplicate hashing logic.
-- `PasswordTool.Core.Tests`: tests for algorithm behavior, parsing, verification, and security rules.
+- `PasswordTool.Core.Tests`: tests for algorithm behavior, parsing, verification, and vault security rules.
+
+## Local Storage
+
+Vault files are stored under:
+
+```text
+%LocalAppData%\PasswordTool
+```
+
+The app uses `.config` for non-secret KDF metadata plus the encrypted TOTP secret, and `.storage` for the encrypted vault JSON payload. Files are hidden/system on Windows where possible, but the app remains secure if an attacker finds them because saved passwords and the TOTP secret are encrypted.
 
 See [docs/architecture.md](docs/architecture.md) for the design details.

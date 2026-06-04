@@ -16,11 +16,19 @@ partial class MainForm
 
     private void InitializeComponent()
     {
-        components = new System.ComponentModel.Container();
+        System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainForm));
+        SuspendLayout();
+        // 
+        // MainForm
+        // 
+        AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(1000, 820);
-        MinimumSize = new Size(900, 720);
-        Text = "Password Hashing Tool";
-        BuildInterface();
+        ClientSize = new Size(1020, 569);
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        Icon = (Icon)resources.GetObject("$this.Icon");
+        MaximizeBox = false;
+        Name = "MainForm";
+        Text = "PasswordTool";
+        ResumeLayout(false);
     }
 }
