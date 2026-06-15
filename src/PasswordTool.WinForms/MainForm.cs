@@ -132,19 +132,21 @@ public partial class MainForm : Form
                 return;
             }
 
-            using var verifyTotpForm = new VerifyTotpForm(
-                "Google Authenticator",
-                "Enter your 6-digit Google Authenticator code to open the vault.",
-                vaultService.VerifyTotpForSession);
-
-            if (verifyTotpForm.ShowDialog(this) == DialogResult.OK)
+            if (string.IsNullOrWhiteSpace(unlockVaultForm.GoogleAuthenticatorCode))
             {
-                OpenVaultForm();
-                return;
+                vaultService.ClearSession();
+                ShowWarning("Google Authenticator code is required.");
+                continue;
             }
 
-            vaultService.ClearSession();
-            Close();
+            if (!vaultService.VerifyTotpForSession(unlockVaultForm.GoogleAuthenticatorCode))
+            {
+                vaultService.ClearSession();
+                ShowWarning("Invalid Google Authenticator code.");
+                continue;
+            }
+
+            OpenVaultForm();
             return;
         }
     }
@@ -162,5 +164,10 @@ public partial class MainForm : Form
     private static void ShowError(string message)
     {
         MessageBox.Show(message, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
+    }
+
+    private static void ShowWarning(string message)
+    {
+        MessageBox.Show(message, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 }
