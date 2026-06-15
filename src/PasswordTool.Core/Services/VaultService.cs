@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text;
+using System.ComponentModel;
 using PasswordTool.Core.Models;
 
 namespace PasswordTool.Core.Services;
@@ -8,7 +10,9 @@ public sealed class VaultService : IDisposable
     private readonly EncryptionService encryptionService;
     private readonly MasterPasswordService masterPasswordService;
     private readonly TotpService totpService;
+    private readonly TrustedUnlockTokenService trustedUnlockTokenService;
     private readonly VaultStorageService storageService;
+    private readonly Func<DateTimeOffset> utcNow;
 
     private byte[]? encryptionKey;
     private string? totpSecretBase32;
@@ -24,11 +28,15 @@ public sealed class VaultService : IDisposable
     public VaultService(
         VaultStorageService storageService,
         EncryptionService encryptionService,
-        TotpService totpService)
+        TotpService totpService,
+        TrustedUnlockTokenService? trustedUnlockTokenService = null,
+        Func<DateTimeOffset>? utcNow = null)
     {
         this.storageService = storageService;
         this.encryptionService = encryptionService;
         this.totpService = totpService;
+        this.trustedUnlockTokenService = trustedUnlockTokenService ?? new TrustedUnlockTokenService();
+        this.utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         masterPasswordService = new MasterPasswordService(encryptionService);
     }
 
@@ -42,12 +50,44 @@ public sealed class VaultService : IDisposable
 
     public string VaultPath => storageService.VaultPath;
 
+    public string TrustedUnlockTokenPath => storageService.TrustedUnlockTokenPath;
+
     public bool IsGoogleAuthenticatorConfigured
     {
         get
         {
             ThrowIfDisposed();
             return !string.IsNullOrWhiteSpace(totpSecretBase32);
+        }
+    }
+
+    public bool CanUnlockWithGoogleAuthenticatorToken
+    {
+        get
+        {
+            ThrowIfDisposed();
+
+            try
+            {
+                var config = storageService.LoadConfig();
+                if (string.IsNullOrWhiteSpace(config.EncryptedTotpSecret) || !storageService.HasTrustedUnlockToken)
+                {
+                    return false;
+                }
+
+                var token = storageService.LoadTrustedUnlockToken();
+                return trustedUnlockTokenService.IsTokenUsable(token, ComputeConfigFingerprint(config), utcNow());
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or InvalidOperationException
+                or CryptographicException
+                or FormatException
+                or System.Text.Json.JsonException
+                or PlatformNotSupportedException)
+            {
+                return false;
+            }
         }
     }
 
@@ -82,6 +122,7 @@ public sealed class VaultService : IDisposable
 
         storageService.SaveConfig(config);
         SaveVault();
+        SaveTrustedUnlockToken(config);
     }
 
     public bool TryUnlockMasterPassword(string masterPassword, out string errorMessage)
@@ -112,7 +153,81 @@ public sealed class VaultService : IDisposable
                 ? null
                 : decryptedTotpSecret;
             vaultData = decryptedVault;
-            isVaultOpen = totpSecretBase32 is null;
+            isVaultOpen = true;
+            SaveTrustedUnlockToken(config);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or InvalidOperationException
+            or CryptographicException
+            or FormatException
+            or PlatformNotSupportedException
+            or System.Text.Json.JsonException)
+        {
+            ClearSession();
+            errorMessage = "The Master Password is incorrect, or PasswordTool storage could not be opened.";
+            return false;
+        }
+    }
+
+    public bool TryUnlockWithGoogleAuthenticator(string code, out string errorMessage)
+    {
+        ThrowIfDisposed();
+        ClearSession();
+        errorMessage = string.Empty;
+        byte[]? trustedKey = null;
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            errorMessage = "Google Authenticator code is required.";
+            return false;
+        }
+
+        try
+        {
+            var config = storageService.LoadConfig();
+            if (string.IsNullOrWhiteSpace(config.EncryptedTotpSecret))
+            {
+                errorMessage = "Google Authenticator login is not configured for this vault.";
+                return false;
+            }
+
+            if (!storageService.HasTrustedUnlockToken)
+            {
+                errorMessage = "Enter the Master Password to create a 1-day Google Authenticator login token.";
+                return false;
+            }
+
+            var configFingerprint = ComputeConfigFingerprint(config);
+            var token = storageService.LoadTrustedUnlockToken();
+            if (!trustedUnlockTokenService.TryUnprotectEncryptionKey(
+                token,
+                configFingerprint,
+                utcNow(),
+                out trustedKey,
+                out errorMessage))
+            {
+                TryDeleteTrustedUnlockToken();
+                return false;
+            }
+
+            var decryptedTotpSecret = encryptionService.DecryptString(config.EncryptedTotpSecret, trustedKey);
+            if (!totpService.VerifyCode(decryptedTotpSecret, code))
+            {
+                errorMessage = "Invalid Google Authenticator code.";
+                return false;
+            }
+
+            var encryptedVaultJson = storageService.LoadVaultPayload();
+            var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, trustedKey);
+            decryptedVault.Items ??= [];
+
+            encryptionKey = trustedKey;
+            trustedKey = null;
+            totpSecretBase32 = decryptedTotpSecret;
+            vaultData = decryptedVault;
+            isVaultOpen = true;
             return true;
         }
         catch (Exception ex) when (ex is IOException
@@ -123,8 +238,15 @@ public sealed class VaultService : IDisposable
             or System.Text.Json.JsonException)
         {
             ClearSession();
-            errorMessage = "The Master Password is incorrect, or PasswordTool storage could not be opened.";
+            errorMessage = "Google Authenticator login could not open PasswordTool storage. Enter the Master Password to create a new 1-day token.";
             return false;
+        }
+        finally
+        {
+            if (trustedKey is { Length: > 0 })
+            {
+                CryptographicOperations.ZeroMemory(trustedKey);
+            }
         }
     }
 
@@ -266,6 +388,62 @@ public sealed class VaultService : IDisposable
     {
         EnsureMasterPasswordUnlocked();
         storageService.SaveVaultPayload(encryptionService.EncryptObject(vaultData, encryptionKey!));
+    }
+
+    private void SaveTrustedUnlockToken(AppConfig config)
+    {
+        if (encryptionKey is null || string.IsNullOrWhiteSpace(config.EncryptedTotpSecret))
+        {
+            return;
+        }
+
+        try
+        {
+            var now = utcNow();
+            var token = trustedUnlockTokenService.CreateToken(
+                encryptionKey,
+                ComputeConfigFingerprint(config),
+                now,
+                now.AddDays(1));
+            storageService.SaveTrustedUnlockToken(token);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or CryptographicException
+            or InvalidOperationException
+            or NotSupportedException
+            or Win32Exception)
+        {
+            TryDeleteTrustedUnlockToken();
+        }
+    }
+
+    private void TryDeleteTrustedUnlockToken()
+    {
+        try
+        {
+            storageService.DeleteTrustedUnlockToken();
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException)
+        {
+        }
+    }
+
+    private static byte[] ComputeConfigFingerprint(AppConfig config)
+    {
+        var fingerprintInput = string.Join('\n',
+            config.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            config.KdfAlgorithm,
+            config.KdfIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            config.KeySizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            config.SaltBase64,
+            config.EncryptedTotpSecret);
+
+        return SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintInput));
     }
 
     private VaultItem FindItem(Guid id)

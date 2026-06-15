@@ -2,12 +2,17 @@ namespace PasswordTool.WinForms;
 
 public sealed class UnlockVaultForm : Form
 {
+    private readonly bool canUseGoogleAuthenticatorLogin;
+    private readonly RadioButton masterPasswordOption = new();
+    private readonly RadioButton googleAuthenticatorOption = new();
     private readonly TextBox masterPasswordTextBox = new();
     private readonly TextBox googleAuthenticatorCodeTextBox = new();
     private readonly CheckBox showPasswordCheckBox = new();
+    private readonly Label googleAuthenticatorHintLabel = new();
 
-    public UnlockVaultForm()
+    public UnlockVaultForm(bool canUseGoogleAuthenticatorLogin)
     {
+        this.canUseGoogleAuthenticatorLogin = canUseGoogleAuthenticatorLogin;
         BuildInterface();
         FormIconService.Apply(this);
     }
@@ -16,6 +21,8 @@ public sealed class UnlockVaultForm : Form
 
     public string GoogleAuthenticatorCode { get; private set; } = string.Empty;
 
+    public bool UseGoogleAuthenticatorLogin { get; private set; }
+
     private void BuildInterface()
     {
         Text = "Unlock Vault";
@@ -23,7 +30,7 @@ public sealed class UnlockVaultForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(540, 245);
+        ClientSize = new Size(620, 255);
         Padding = new Padding(16);
 
         var layout = new TableLayoutPanel
@@ -42,12 +49,26 @@ public sealed class UnlockVaultForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
 
-        var loginOptionLabel = new Label
+        masterPasswordOption.Text = "Master Password";
+        masterPasswordOption.AutoSize = true;
+        masterPasswordOption.Checked = true;
+        masterPasswordOption.Margin = new Padding(0, 5, 18, 0);
+        masterPasswordOption.CheckedChanged += (_, _) => UpdateLoginOptionState();
+
+        googleAuthenticatorOption.Text = "Google Authenticator";
+        googleAuthenticatorOption.AutoSize = true;
+        googleAuthenticatorOption.Enabled = canUseGoogleAuthenticatorLogin;
+        googleAuthenticatorOption.Margin = new Padding(0, 5, 0, 0);
+        googleAuthenticatorOption.CheckedChanged += (_, _) => UpdateLoginOptionState();
+
+        var loginOptionPanel = new FlowLayoutPanel
         {
-            Text = "Master Password + Google Authenticator",
             Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false
         };
+        loginOptionPanel.Controls.Add(masterPasswordOption);
+        loginOptionPanel.Controls.Add(googleAuthenticatorOption);
 
         masterPasswordTextBox.Dock = DockStyle.Fill;
         masterPasswordTextBox.UseSystemPasswordChar = true;
@@ -57,12 +78,8 @@ public sealed class UnlockVaultForm : Form
         googleAuthenticatorCodeTextBox.MaxLength = 6;
         googleAuthenticatorCodeTextBox.TextAlign = HorizontalAlignment.Center;
 
-        var googleAuthenticatorHintLabel = new Label
-        {
-            Text = "Required for vaults paired with Google Authenticator.",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft
-        };
+        googleAuthenticatorHintLabel.Dock = DockStyle.Fill;
+        googleAuthenticatorHintLabel.TextAlign = ContentAlignment.MiddleLeft;
 
         showPasswordCheckBox.Text = "Show";
         showPasswordCheckBox.AutoSize = true;
@@ -94,7 +111,7 @@ public sealed class UnlockVaultForm : Form
         buttonRow.Controls.Add(okButton);
 
         layout.Controls.Add(CreateLabel("Login option"), 0, 0);
-        layout.Controls.Add(loginOptionLabel, 1, 0);
+        layout.Controls.Add(loginOptionPanel, 1, 0);
         layout.Controls.Add(CreateLabel("Master Password"), 0, 1);
         layout.Controls.Add(masterPasswordTextBox, 1, 1);
         layout.Controls.Add(new Panel(), 0, 2);
@@ -109,10 +126,28 @@ public sealed class UnlockVaultForm : Form
         Controls.Add(layout);
         AcceptButton = okButton;
         CancelButton = cancelButton;
+        UpdateLoginOptionState();
     }
 
     private void OkButton_Click(object? sender, EventArgs e)
     {
+        UseGoogleAuthenticatorLogin = googleAuthenticatorOption.Checked && googleAuthenticatorOption.Enabled;
+
+        if (UseGoogleAuthenticatorLogin)
+        {
+            if (string.IsNullOrWhiteSpace(googleAuthenticatorCodeTextBox.Text))
+            {
+                MessageBox.Show("Google Authenticator code is required.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            MasterPassword = string.Empty;
+            GoogleAuthenticatorCode = googleAuthenticatorCodeTextBox.Text.Trim();
+            DialogResult = DialogResult.OK;
+            Close();
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(masterPasswordTextBox.Text))
         {
             MessageBox.Show("Master Password is required.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -120,9 +155,22 @@ public sealed class UnlockVaultForm : Form
         }
 
         MasterPassword = masterPasswordTextBox.Text;
-        GoogleAuthenticatorCode = googleAuthenticatorCodeTextBox.Text.Trim();
+        GoogleAuthenticatorCode = string.Empty;
         DialogResult = DialogResult.OK;
         Close();
+    }
+
+    private void UpdateLoginOptionState()
+    {
+        var useGoogleAuthenticator = googleAuthenticatorOption.Checked && googleAuthenticatorOption.Enabled;
+
+        masterPasswordTextBox.Enabled = !useGoogleAuthenticator;
+        showPasswordCheckBox.Enabled = !useGoogleAuthenticator;
+        googleAuthenticatorCodeTextBox.Enabled = useGoogleAuthenticator;
+
+        googleAuthenticatorHintLabel.Text = canUseGoogleAuthenticatorLogin
+            ? "Google Authenticator login uses the 1-day token created by a Master Password login."
+            : "Google Authenticator login is available for 1 day after a successful Master Password login.";
     }
 
     private static Label CreateLabel(string text)

@@ -113,36 +113,28 @@ public partial class MainForm : Form
     {
         while (!IsDisposed)
         {
-            using var unlockVaultForm = new UnlockVaultForm();
+            using var unlockVaultForm = new UnlockVaultForm(vaultService.CanUnlockWithGoogleAuthenticatorToken);
             if (unlockVaultForm.ShowDialog(this) != DialogResult.OK)
             {
                 Close();
                 return;
             }
 
-            if (!vaultService.TryUnlockMasterPassword(unlockVaultForm.MasterPassword, out var errorMessage))
+            if (unlockVaultForm.UseGoogleAuthenticatorLogin)
             {
-                ShowError(errorMessage);
-                continue;
-            }
+                if (!vaultService.TryUnlockWithGoogleAuthenticator(unlockVaultForm.GoogleAuthenticatorCode, out var googleAuthenticatorError))
+                {
+                    ShowWarning(googleAuthenticatorError);
+                    continue;
+                }
 
-            if (!vaultService.IsGoogleAuthenticatorConfigured)
-            {
                 OpenVaultForm();
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(unlockVaultForm.GoogleAuthenticatorCode))
+            if (!vaultService.TryUnlockMasterPassword(unlockVaultForm.MasterPassword, out var errorMessage))
             {
-                vaultService.ClearSession();
-                ShowWarning("Google Authenticator code is required.");
-                continue;
-            }
-
-            if (!vaultService.VerifyTotpForSession(unlockVaultForm.GoogleAuthenticatorCode))
-            {
-                vaultService.ClearSession();
-                ShowWarning("Invalid Google Authenticator code.");
+                ShowError(errorMessage);
                 continue;
             }
 

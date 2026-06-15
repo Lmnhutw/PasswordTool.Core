@@ -28,6 +28,7 @@ public sealed class VaultStorageService
         AppDirectory = appDirectory;
         ConfigPath = Path.Combine(AppDirectory, ".config");
         VaultPath = Path.Combine(AppDirectory, ".storage");
+        TrustedUnlockTokenPath = Path.Combine(AppDirectory, ".trusted-unlock");
     }
 
     public string AppDirectory { get; }
@@ -36,6 +37,8 @@ public sealed class VaultStorageService
 
     public string VaultPath { get; }
 
+    public string TrustedUnlockTokenPath { get; }
+
     public bool HasConfig => File.Exists(ConfigPath);
 
     public bool HasVault => File.Exists(VaultPath);
@@ -43,6 +46,8 @@ public sealed class VaultStorageService
     public bool IsInitialized => HasConfig && HasVault;
 
     public bool HasPartialStorage => HasConfig != HasVault;
+
+    public bool HasTrustedUnlockToken => File.Exists(TrustedUnlockTokenPath);
 
     public void SaveConfig(AppConfig config)
     {
@@ -60,6 +65,35 @@ public sealed class VaultStorageService
 
         var config = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(ConfigPath), JsonOptions);
         return config ?? throw new InvalidOperationException("PasswordTool config file is empty or invalid.");
+    }
+
+    public void SaveTrustedUnlockToken(TrustedUnlockToken token)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        EnsureStorageDirectory();
+        WriteProtectedText(TrustedUnlockTokenPath, JsonSerializer.Serialize(token, JsonOptions));
+    }
+
+    public TrustedUnlockToken LoadTrustedUnlockToken()
+    {
+        if (!File.Exists(TrustedUnlockTokenPath))
+        {
+            throw new FileNotFoundException("PasswordTool trusted unlock token was not found.", TrustedUnlockTokenPath);
+        }
+
+        var token = JsonSerializer.Deserialize<TrustedUnlockToken>(File.ReadAllText(TrustedUnlockTokenPath), JsonOptions);
+        return token ?? throw new InvalidOperationException("PasswordTool trusted unlock token is empty or invalid.");
+    }
+
+    public void DeleteTrustedUnlockToken()
+    {
+        if (!File.Exists(TrustedUnlockTokenPath))
+        {
+            return;
+        }
+
+        TryClearProtectedAttributes(TrustedUnlockTokenPath);
+        File.Delete(TrustedUnlockTokenPath);
     }
 
     public void SaveVaultPayload(string encryptedVaultJson)

@@ -13,7 +13,7 @@ public sealed class VaultServiceTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void Vault_storage_is_encrypted_and_requires_master_password_and_totp()
+    public void Vault_storage_is_encrypted_and_supports_master_password_and_trusted_totp_login()
     {
         var storage = new VaultStorageService(tempDirectory);
         var encryption = new EncryptionService();
@@ -43,18 +43,56 @@ public sealed class VaultServiceTests : IDisposable
         vaultService.ClearSession();
 
         using var reopenedVault = new VaultService(storage, encryption, totpService);
+        Assert.True(reopenedVault.CanUnlockWithGoogleAuthenticatorToken);
+        Assert.False(reopenedVault.TryUnlockWithGoogleAuthenticator(invalidCode, out _));
+        Assert.Throws<InvalidOperationException>(() => reopenedVault.GetItems());
+        Assert.True(reopenedVault.TryUnlockWithGoogleAuthenticator(code, out _));
+        Assert.Single(reopenedVault.GetItems());
+        Assert.Throws<UnauthorizedAccessException>(() => reopenedVault.GetPassword(addedItem.Id, invalidCode));
+        Assert.Equal("super-secret-value", reopenedVault.GetPassword(addedItem.Id, code));
+
+        reopenedVault.ClearSession();
         Assert.False(reopenedVault.TryUnlockMasterPassword("wrong master password", out _));
         Assert.Throws<InvalidOperationException>(() => reopenedVault.VerifyTotpForSession(code));
         Assert.True(reopenedVault.TryUnlockMasterPassword("correct horse battery staple", out _));
         Assert.True(reopenedVault.IsGoogleAuthenticatorConfigured);
-        Assert.Throws<InvalidOperationException>(() => reopenedVault.GetItems());
-
-        Assert.False(reopenedVault.VerifyTotpForSession(invalidCode));
-        Assert.Throws<InvalidOperationException>(() => reopenedVault.GetItems());
-        Assert.True(reopenedVault.VerifyTotpForSession(code));
         Assert.Single(reopenedVault.GetItems());
         Assert.Throws<UnauthorizedAccessException>(() => reopenedVault.GetPassword(addedItem.Id, invalidCode));
         Assert.Equal("super-secret-value", reopenedVault.GetPassword(addedItem.Id, code));
+    }
+
+    [Fact]
+    public void Google_authenticator_login_token_expires_after_one_day()
+    {
+        var now = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
+        var storage = new VaultStorageService(tempDirectory);
+        var encryption = new EncryptionService();
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        var code = ComputeTotp(secret);
+
+        using (var vaultService = new VaultService(storage, encryption, totpService, utcNow: () => now))
+        {
+            vaultService.InitializeNewVault("correct horse battery staple", secret, code);
+            vaultService.AddItem(new VaultItem
+            {
+                Title = "Email",
+                Password = "super-secret-value"
+            });
+        }
+
+        using (var withinTokenLifetime = new VaultService(storage, encryption, totpService, utcNow: () => now.AddHours(23)))
+        {
+            Assert.True(withinTokenLifetime.CanUnlockWithGoogleAuthenticatorToken);
+            Assert.True(withinTokenLifetime.TryUnlockWithGoogleAuthenticator(code, out _));
+            Assert.Single(withinTokenLifetime.GetItems());
+        }
+
+        using var afterTokenExpiration = new VaultService(storage, encryption, totpService, utcNow: () => now.AddDays(1).AddSeconds(1));
+        Assert.False(afterTokenExpiration.CanUnlockWithGoogleAuthenticatorToken);
+        Assert.False(afterTokenExpiration.TryUnlockWithGoogleAuthenticator(code, out var errorMessage));
+        Assert.Contains("expired", errorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Throws<InvalidOperationException>(() => afterTokenExpiration.GetItems());
     }
 
     [Fact]
@@ -95,6 +133,7 @@ public sealed class VaultServiceTests : IDisposable
         Assert.False(vaultService.TryUnlockMasterPassword("wrong master password", out _));
         Assert.True(vaultService.TryUnlockMasterPassword(masterPassword, out _));
         Assert.False(vaultService.IsGoogleAuthenticatorConfigured);
+        Assert.False(vaultService.CanUnlockWithGoogleAuthenticatorToken);
 
         var item = Assert.Single(vaultService.GetItems());
         Assert.Equal("legacy-secret", vaultService.GetPassword(item.Id, string.Empty));

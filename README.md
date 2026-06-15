@@ -66,12 +66,12 @@ dotnet test PasswordTool.slnx
 
 ## Login and Recovery
 
-New vaults use two steps:
+After setup, the unlock screen offers two login options:
 
-1. Enter the Master Password. PasswordTool derives the vault encryption key from this password.
-2. Enter the current 6-digit Google Authenticator code. The vault opens only after the Master Password has been verified and the TOTP code is valid.
+1. Master Password. PasswordTool derives the vault encryption key from this password, opens the vault, and creates a 1-day trusted Google Authenticator login token.
+2. Google Authenticator. This option is available only while the 1-day trusted token is valid. After the token expires, enter the Master Password again to create a new token.
 
-Google Authenticator does not replace the Master Password and cannot unlock the encrypted vault by itself. The TOTP secret is encrypted with the Master Password-derived key in `.config`; saved vault items are encrypted separately in `.storage`.
+Google Authenticator does not replace the Master Password permanently and cannot unlock the encrypted vault without the local trusted token. The token stores the vault encryption key protected by Windows DPAPI for the current Windows user; it is not stored in plaintext. The TOTP secret is encrypted with the Master Password-derived key in `.config`; saved vault items are encrypted separately in `.storage`.
 
 Older vaults that do not have a paired TOTP secret continue to unlock with the Master Password only. Pairing Google Authenticator is required for newly created vaults.
 
@@ -101,10 +101,12 @@ src/
       VaultItem.cs
       VaultData.cs
       AppConfig.cs
+      TrustedUnlockToken.cs
     Services/
       EncryptionService.cs
       MasterPasswordService.cs
       TotpService.cs
+      TrustedUnlockTokenService.cs
       VaultStorageService.cs
       VaultService.cs
   PasswordTool.WinForms/
@@ -137,6 +139,6 @@ Vault files are stored under:
 %LocalAppData%\PasswordTool
 ```
 
-The app uses `.config` for non-secret KDF metadata plus the encrypted TOTP secret, and `.storage` for the encrypted vault JSON payload. Files are hidden/system on Windows where possible, but the app remains secure if an attacker finds them because saved passwords and the TOTP secret are encrypted.
+The app uses `.config` for non-secret KDF metadata plus the encrypted TOTP secret, `.storage` for the encrypted vault JSON payload, and `.trusted-unlock` for the optional 1-day Windows DPAPI-protected Google Authenticator login token. Files are hidden/system on Windows where possible, but the app remains secure if an attacker finds them because saved passwords, the TOTP secret, and the token key material are not stored in plaintext.
 
 See [docs/architecture.md](docs/architecture.md) for the design details.

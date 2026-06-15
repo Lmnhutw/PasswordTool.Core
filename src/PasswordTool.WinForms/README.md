@@ -6,9 +6,9 @@ This project contains forms only. Master Password handling, key derivation, encr
 
 Login flow:
 
-1. `UnlockVaultForm` collects the Master Password and Google Authenticator code.
-2. `PasswordTool.Core` derives the encryption key and decrypts the vault data.
-3. If the vault has a paired Google Authenticator-compatible TOTP secret, `PasswordTool.Core` verifies the current 6-digit code before `VaultForm` opens.
+1. `UnlockVaultForm` lets the user choose `Master Password` or `Google Authenticator`.
+2. `Master Password` login calls `PasswordTool.Core` to derive the encryption key, open the vault, and create a 1-day trusted Google Authenticator token.
+3. `Google Authenticator` login is enabled only while that token is valid; Core verifies the current 6-digit code before `VaultForm` opens.
 
 The WinForms project must not store the Master Password, raw TOTP secret, or encryption key.
 
