@@ -46,8 +46,10 @@ public sealed class CreateMasterPasswordForm : Form
         confirmPasswordTextBox.Dock = DockStyle.Fill;
         confirmPasswordTextBox.UseSystemPasswordChar = true;
 
-        showPasswordCheckBox.Text = "Show password";
-        showPasswordCheckBox.Dock = DockStyle.Left;
+        showPasswordCheckBox.Text = "Show";
+        showPasswordCheckBox.AutoSize = true;
+        showPasswordCheckBox.Anchor = AnchorStyles.Left;
+        showPasswordCheckBox.Margin = new Padding(0, 4, 0, 0);
         showPasswordCheckBox.CheckedChanged += (_, _) =>
         {
             masterPasswordTextBox.UseSystemPasswordChar = !showPasswordCheckBox.Checked;
