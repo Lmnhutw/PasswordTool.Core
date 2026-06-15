@@ -63,8 +63,10 @@ public sealed class VaultItemEditorForm : Form
         notesTextBox.Multiline = true;
         notesTextBox.ScrollBars = ScrollBars.Vertical;
 
-        showPasswordCheckBox.Text = "Show password";
-        showPasswordCheckBox.Dock = DockStyle.Left;
+        showPasswordCheckBox.Text = "Show";
+        showPasswordCheckBox.AutoSize = true;
+        showPasswordCheckBox.Anchor = AnchorStyles.Left;
+        showPasswordCheckBox.Margin = new Padding(0, 4, 0, 0);
         showPasswordCheckBox.CheckedChanged += (_, _) => passwordTextBox.UseSystemPasswordChar = !showPasswordCheckBox.Checked;
 
         var saveButton = new Button

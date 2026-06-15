@@ -86,7 +86,9 @@ public sealed class PasswordHashToolForm : Form
         passwordInput.UseSystemPasswordChar = true;
 
         showPasswordCheckBox.Text = "Show";
-        showPasswordCheckBox.Dock = DockStyle.Left;
+        showPasswordCheckBox.AutoSize = true;
+        showPasswordCheckBox.Anchor = AnchorStyles.Left;
+        showPasswordCheckBox.Margin = new Padding(0, 4, 0, 0);
         showPasswordCheckBox.CheckedChanged += (_, _) => passwordInput.UseSystemPasswordChar = !showPasswordCheckBox.Checked;
 
         var passwordRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
@@ -169,7 +171,9 @@ public sealed class PasswordHashToolForm : Form
         verifyPasswordInput.UseSystemPasswordChar = true;
 
         showVerifyPasswordCheckBox.Text = "Show";
-        showVerifyPasswordCheckBox.Dock = DockStyle.Left;
+        showVerifyPasswordCheckBox.AutoSize = true;
+        showVerifyPasswordCheckBox.Anchor = AnchorStyles.Left;
+        showVerifyPasswordCheckBox.Margin = new Padding(0, 4, 0, 0);
         showVerifyPasswordCheckBox.CheckedChanged += (_, _) => verifyPasswordInput.UseSystemPasswordChar = !showVerifyPasswordCheckBox.Checked;
 
         var passwordRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
