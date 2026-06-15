@@ -40,7 +40,7 @@ public sealed class SetupAuthenticatorForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(700, 470);
+        ClientSize = new Size(760, 470);
         Padding = new Padding(16);
 
         var root = new TableLayoutPanel
@@ -49,13 +49,13 @@ public sealed class SetupAuthenticatorForm : Form
             ColumnCount = 2,
             RowCount = 5
         };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 310));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 300));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
 
         qrPictureBox.Dock = DockStyle.Fill;
         qrPictureBox.SizeMode = PictureBoxSizeMode.Zoom;
@@ -72,13 +72,15 @@ public sealed class SetupAuthenticatorForm : Form
         {
             Text = SecretBase32,
             Dock = DockStyle.Fill,
-            ReadOnly = true
+            ReadOnly = true,
+            Margin = new Padding(0, 3, 8, 0)
         };
 
         var copySecretButton = new Button
         {
             Text = "Copy Secret",
-            Width = 110
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 0, 0)
         };
         copySecretButton.Click += (_, _) => Clipboard.SetText(SecretBase32);
 
@@ -107,11 +109,13 @@ public sealed class SetupAuthenticatorForm : Form
         codeTextBox.Width = 140;
         codeTextBox.MaxLength = 6;
         codeTextBox.TextAlign = HorizontalAlignment.Center;
+        codeTextBox.Margin = new Padding(0, 6, 12, 0);
 
         var confirmButton = new Button
         {
             Text = "Confirm",
-            Width = 110,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 8, 0),
             DialogResult = DialogResult.None
         };
         confirmButton.Click += ConfirmButton_Click;
@@ -119,26 +123,31 @@ public sealed class SetupAuthenticatorForm : Form
         var cancelButton = new Button
         {
             Text = "Cancel",
-            Width = 110,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 0, 0),
             DialogResult = DialogResult.Cancel
         };
 
-        var buttonRow = new FlowLayoutPanel
+        var codeRow = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.RightToLeft
+            ColumnCount = 4,
+            RowCount = 1
         };
-        buttonRow.Controls.Add(cancelButton);
-        buttonRow.Controls.Add(confirmButton);
+        codeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 115));
+        codeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155));
+        codeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118));
+        codeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        codeRow.Controls.Add(CreateLabel("6-digit code"), 0, 0);
+        codeRow.Controls.Add(codeTextBox, 1, 0);
+        codeRow.Controls.Add(confirmButton, 2, 0);
+        codeRow.Controls.Add(cancelButton, 3, 0);
 
         root.Controls.Add(qrPictureBox, 0, 0);
-        root.SetRowSpan(qrPictureBox, 3);
+        root.SetRowSpan(qrPictureBox, 4);
         root.Controls.Add(instructionLabel, 1, 0);
         root.Controls.Add(secretBlock, 1, 1);
-        root.Controls.Add(CreateLabel("6-digit code"), 0, 3);
-        root.Controls.Add(codeTextBox, 1, 3);
-        root.Controls.Add(buttonRow, 0, 4);
-        root.SetColumnSpan(buttonRow, 2);
+        root.Controls.Add(codeRow, 1, 3);
 
         Controls.Add(root);
         AcceptButton = confirmButton;
