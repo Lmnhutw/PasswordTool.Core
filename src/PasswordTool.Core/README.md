@@ -7,7 +7,9 @@ The vault implementation in this project owns:
 - Master Password validation and PBKDF2 key derivation
 - AES-GCM encryption/decryption
 - Encrypted local vault storage under `%LocalAppData%\PasswordTool`
-- TOTP secret generation and verification with `Otp.NET`
+- Google Authenticator-compatible 6-digit TOTP secret generation and verification with `Otp.NET`
 - Vault item models and CRUD services
+
+For newly created vaults, `.config` stores non-secret KDF metadata plus the encrypted TOTP secret. The TOTP secret is encrypted with the Master Password-derived key and is only available after the Master Password succeeds. Google Authenticator cannot unlock the vault by itself.
 
 The local storage files use non-obvious names, `.config` and `.storage`, and are marked Hidden/System on Windows where possible. Those attributes are only obfuscation; security depends on the Master Password-derived encryption key.

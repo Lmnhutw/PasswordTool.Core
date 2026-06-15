@@ -89,13 +89,13 @@ public sealed class VerifyTotpForm : Form
         var code = codeTextBox.Text.Trim();
         if (code.Length != 6 || !code.All(char.IsDigit))
         {
-            MessageBox.Show("Enter the 6-digit Authenticator code.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Enter the 6-digit Google Authenticator code.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         if (!verifyCode(code))
         {
-            MessageBox.Show("Authenticator verification failed.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Invalid Google Authenticator code.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             codeTextBox.SelectAll();
             codeTextBox.Focus();
             return;

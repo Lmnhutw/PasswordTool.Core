@@ -82,7 +82,7 @@ public sealed class UnlockVaultForm : Form
     {
         if (string.IsNullOrWhiteSpace(masterPasswordTextBox.Text))
         {
-            MessageBox.Show("Enter your Master Password.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Master Password is required.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 

@@ -170,7 +170,7 @@ public sealed class VaultForm : Form
             return;
         }
 
-        var code = RequestTotpCode("Edit Vault Item", "Enter your Authenticator code before editing this item.");
+        var code = RequestTotpCode("Edit Vault Item", "Enter your Google Authenticator code before editing this item.");
         if (code is null)
         {
             return;
@@ -239,7 +239,7 @@ public sealed class VaultForm : Form
             return;
         }
 
-        var code = RequestTotpCode("Copy Password", "Enter your Authenticator code before copying this password.");
+        var code = RequestTotpCode("Copy Password", "Enter your Google Authenticator code before copying this password.");
         if (code is null)
         {
             return;
@@ -259,7 +259,7 @@ public sealed class VaultForm : Form
             return;
         }
 
-        var code = RequestTotpCode("View Password", "Enter your Authenticator code before viewing this password.");
+        var code = RequestTotpCode("View Password", "Enter your Google Authenticator code before viewing this password.");
         if (code is null)
         {
             return;
@@ -274,6 +274,11 @@ public sealed class VaultForm : Form
 
     private string? RequestTotpCode(string title, string prompt)
     {
+        if (!vaultService.IsGoogleAuthenticatorConfigured)
+        {
+            return string.Empty;
+        }
+
         using var verifyTotpForm = new VerifyTotpForm(title, prompt, vaultService.VerifyTotpForSensitiveAction);
         return verifyTotpForm.ShowDialog(this) == DialogResult.OK
             ? verifyTotpForm.Code

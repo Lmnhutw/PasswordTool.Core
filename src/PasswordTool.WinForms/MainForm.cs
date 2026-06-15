@@ -126,9 +126,15 @@ public partial class MainForm : Form
                 continue;
             }
 
+            if (!vaultService.IsGoogleAuthenticatorConfigured)
+            {
+                OpenVaultForm();
+                return;
+            }
+
             using var verifyTotpForm = new VerifyTotpForm(
-                "Unlock Vault",
-                "Enter your 6-digit Authenticator code to open the vault.",
+                "Google Authenticator",
+                "Enter your 6-digit Google Authenticator code to open the vault.",
                 vaultService.VerifyTotpForSession);
 
             if (verifyTotpForm.ShowDialog(this) == DialogResult.OK)

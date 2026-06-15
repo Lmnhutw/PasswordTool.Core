@@ -42,6 +42,15 @@ public sealed class VaultService : IDisposable
 
     public string VaultPath => storageService.VaultPath;
 
+    public bool IsGoogleAuthenticatorConfigured
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return !string.IsNullOrWhiteSpace(totpSecretBase32);
+        }
+    }
+
     public void InitializeNewVault(string masterPassword, string totpSecretBase32, string confirmationTotpCode)
     {
         ThrowIfDisposed();
@@ -90,7 +99,7 @@ public sealed class VaultService : IDisposable
                 out var derivedKey,
                 out var decryptedTotpSecret))
             {
-                errorMessage = "The Master Password is incorrect, or the config file cannot be decrypted.";
+                errorMessage = "The Master Password is incorrect.";
                 return false;
             }
 
@@ -99,9 +108,11 @@ public sealed class VaultService : IDisposable
             decryptedVault.Items ??= [];
 
             encryptionKey = derivedKey;
-            totpSecretBase32 = decryptedTotpSecret;
+            totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret)
+                ? null
+                : decryptedTotpSecret;
             vaultData = decryptedVault;
-            isVaultOpen = false;
+            isVaultOpen = totpSecretBase32 is null;
             return true;
         }
         catch (Exception ex) when (ex is IOException
@@ -112,7 +123,7 @@ public sealed class VaultService : IDisposable
             or System.Text.Json.JsonException)
         {
             ClearSession();
-            errorMessage = "PasswordTool storage could not be opened. The files may be missing, corrupt, or encrypted with a different Master Password.";
+            errorMessage = "The Master Password is incorrect, or PasswordTool storage could not be opened.";
             return false;
         }
     }
@@ -121,6 +132,12 @@ public sealed class VaultService : IDisposable
     {
         ThrowIfDisposed();
         EnsureMasterPasswordUnlocked();
+
+        if (totpSecretBase32 is null)
+        {
+            isVaultOpen = true;
+            return true;
+        }
 
         if (!totpService.VerifyCode(totpSecretBase32!, code))
         {
@@ -135,6 +152,11 @@ public sealed class VaultService : IDisposable
     {
         ThrowIfDisposed();
         EnsureOpen();
+        if (totpSecretBase32 is null)
+        {
+            return true;
+        }
+
         return totpService.VerifyCode(totpSecretBase32!, code);
     }
 
@@ -262,7 +284,7 @@ public sealed class VaultService : IDisposable
 
     private void EnsureMasterPasswordUnlocked()
     {
-        if (encryptionKey is null || totpSecretBase32 is null || vaultData is null)
+        if (encryptionKey is null || vaultData is null)
         {
             throw new InvalidOperationException("The vault is not unlocked with the Master Password.");
         }

@@ -35,7 +35,7 @@ public sealed class SetupAuthenticatorForm : Form
 
     private void BuildInterface()
     {
-        Text = "Set Up Authenticator";
+        Text = "Set Up Google Authenticator";
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -63,7 +63,7 @@ public sealed class SetupAuthenticatorForm : Form
 
         var instructionLabel = new Label
         {
-            Text = "Scan this QR code with Microsoft Authenticator or Google Authenticator.",
+            Text = "Scan this QR code with Google Authenticator. Other 6-digit TOTP apps are compatible.",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft
         };
@@ -150,13 +150,13 @@ public sealed class SetupAuthenticatorForm : Form
         var code = codeTextBox.Text.Trim();
         if (code.Length != 6 || !code.All(char.IsDigit))
         {
-            MessageBox.Show("Enter the 6-digit Authenticator code.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Enter the 6-digit Google Authenticator code.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         if (!totpService.VerifyCode(SecretBase32, code))
         {
-            MessageBox.Show("Authenticator verification failed. Check the device time and try again.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Invalid Google Authenticator code. Check the device time and try again.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             codeTextBox.SelectAll();
             codeTextBox.Focus();
             return;

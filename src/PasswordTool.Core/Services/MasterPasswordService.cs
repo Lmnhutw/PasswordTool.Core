@@ -92,7 +92,11 @@ public sealed class MasterPasswordService
         try
         {
             encryptionKey = DeriveKey(masterPassword, config);
-            totpSecretBase32 = encryptionService.DecryptString(config.EncryptedTotpSecret, encryptionKey);
+            if (!string.IsNullOrWhiteSpace(config.EncryptedTotpSecret))
+            {
+                totpSecretBase32 = encryptionService.DecryptString(config.EncryptedTotpSecret, encryptionKey);
+            }
+
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException
