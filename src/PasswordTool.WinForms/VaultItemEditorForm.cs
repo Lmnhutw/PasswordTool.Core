@@ -12,6 +12,8 @@ public sealed class VaultItemEditorForm : Form
     private readonly TextBox urlTextBox = new();
     private readonly TextBox notesTextBox = new();
     private readonly CheckBox showPasswordCheckBox = new();
+    private readonly CheckBox hideUrlCheckBox = new();
+    private readonly CheckBox hideNotesCheckBox = new();
 
     public VaultItemEditorForm(VaultItem? item = null)
     {
@@ -34,14 +36,14 @@ public sealed class VaultItemEditorForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(640, 480);
+        ClientSize = new Size(640, 530);
         Padding = new Padding(16);
 
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 8
+            RowCount = 10
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -50,7 +52,9 @@ public sealed class VaultItemEditorForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
 
@@ -62,6 +66,10 @@ public sealed class VaultItemEditorForm : Form
         notesTextBox.Dock = DockStyle.Fill;
         notesTextBox.Multiline = true;
         notesTextBox.ScrollBars = ScrollBars.Vertical;
+        hideUrlCheckBox.Text = "Hide URL in the vault list";
+        hideUrlCheckBox.AutoSize = true;
+        hideNotesCheckBox.Text = "Hide notes in the vault list";
+        hideNotesCheckBox.AutoSize = true;
 
         showPasswordCheckBox.Text = "Show";
         showPasswordCheckBox.AutoSize = true;
@@ -112,9 +120,13 @@ public sealed class VaultItemEditorForm : Form
         layout.Controls.Add(showPasswordCheckBox, 1, 3);
         layout.Controls.Add(CreateLabel("Url"), 0, 4);
         layout.Controls.Add(urlTextBox, 1, 4);
-        layout.Controls.Add(CreateLabel("Notes"), 0, 5);
-        layout.Controls.Add(notesTextBox, 1, 5);
-        layout.Controls.Add(buttonRow, 0, 7);
+        layout.Controls.Add(new Panel(), 0, 5);
+        layout.Controls.Add(hideUrlCheckBox, 1, 5);
+        layout.Controls.Add(CreateLabel("Notes"), 0, 6);
+        layout.Controls.Add(notesTextBox, 1, 6);
+        layout.Controls.Add(new Panel(), 0, 7);
+        layout.Controls.Add(hideNotesCheckBox, 1, 7);
+        layout.Controls.Add(buttonRow, 0, 9);
         layout.SetColumnSpan(buttonRow, 2);
 
         Controls.Add(layout);
@@ -128,7 +140,9 @@ public sealed class VaultItemEditorForm : Form
         usernameTextBox.Text = originalItem.Username;
         passwordTextBox.Text = originalItem.Password;
         urlTextBox.Text = originalItem.Url;
+        hideUrlCheckBox.Checked = originalItem.HideUrl;
         notesTextBox.Text = originalItem.Notes;
+        hideNotesCheckBox.Checked = originalItem.HideNotes;
     }
 
     private void SaveButton_Click(object? sender, EventArgs e)
@@ -152,7 +166,9 @@ public sealed class VaultItemEditorForm : Form
             Username = usernameTextBox.Text.Trim(),
             Password = passwordTextBox.Text,
             Url = urlTextBox.Text.Trim(),
+            HideUrl = hideUrlCheckBox.Checked,
             Notes = notesTextBox.Text,
+            HideNotes = hideNotesCheckBox.Checked,
             CreatedAt = originalItem.CreatedAt,
             UpdatedAt = DateTimeOffset.UtcNow
         };
@@ -182,7 +198,9 @@ public sealed class VaultItemEditorForm : Form
             Username = item.Username,
             Password = item.Password,
             Url = item.Url,
+            HideUrl = item.HideUrl,
             Notes = item.Notes,
+            HideNotes = item.HideNotes,
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
         };

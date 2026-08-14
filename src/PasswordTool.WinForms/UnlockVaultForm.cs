@@ -1,8 +1,11 @@
 namespace PasswordTool.WinForms;
 
+using PasswordTool.Core.Models;
+
 public sealed class UnlockVaultForm : Form
 {
     private readonly bool canUseGoogleAuthenticatorLogin;
+    private readonly VaultLoginMode loginMode;
     private readonly RadioButton masterPasswordOption = new();
     private readonly RadioButton googleAuthenticatorOption = new();
     private readonly TextBox masterPasswordTextBox = new();
@@ -10,9 +13,10 @@ public sealed class UnlockVaultForm : Form
     private readonly CheckBox showPasswordCheckBox = new();
     private readonly Label googleAuthenticatorHintLabel = new();
 
-    public UnlockVaultForm(bool canUseGoogleAuthenticatorLogin)
+    public UnlockVaultForm(bool canUseGoogleAuthenticatorLogin, VaultLoginMode loginMode)
     {
         this.canUseGoogleAuthenticatorLogin = canUseGoogleAuthenticatorLogin;
+        this.loginMode = loginMode;
         BuildInterface();
         FormIconService.Apply(this);
     }
@@ -51,7 +55,7 @@ public sealed class UnlockVaultForm : Form
 
         masterPasswordOption.Text = "Master Password";
         masterPasswordOption.AutoSize = true;
-        masterPasswordOption.Checked = true;
+        masterPasswordOption.Checked = loginMode != VaultLoginMode.GoogleAuthenticatorCode || !canUseGoogleAuthenticatorLogin;
         masterPasswordOption.Margin = new Padding(0, 5, 18, 0);
         masterPasswordOption.CheckedChanged += (_, _) => UpdateLoginOptionState();
 
@@ -60,6 +64,7 @@ public sealed class UnlockVaultForm : Form
         googleAuthenticatorOption.Enabled = canUseGoogleAuthenticatorLogin;
         googleAuthenticatorOption.Margin = new Padding(0, 5, 0, 0);
         googleAuthenticatorOption.CheckedChanged += (_, _) => UpdateLoginOptionState();
+        googleAuthenticatorOption.Checked = loginMode == VaultLoginMode.GoogleAuthenticatorCode && canUseGoogleAuthenticatorLogin;
 
         var loginOptionPanel = new FlowLayoutPanel
         {
@@ -169,7 +174,7 @@ public sealed class UnlockVaultForm : Form
         googleAuthenticatorCodeTextBox.Enabled = useGoogleAuthenticator;
 
         googleAuthenticatorHintLabel.Text = canUseGoogleAuthenticatorLogin
-            ? "Google Authenticator login uses the 1-day token created by a Master Password login."
+            ? "Google Authenticator login uses the 1-day token created by a Master Password login. Master Password remains available as recovery."
             : "Google Authenticator login is available for 1 day after a successful Master Password login.";
     }
 

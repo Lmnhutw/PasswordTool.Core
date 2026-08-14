@@ -76,23 +76,14 @@ public sealed class SetupAuthenticatorForm : Form
             Margin = new Padding(0, 3, 8, 0)
         };
 
-        var copySecretButton = new Button
-        {
-            Text = "Copy Secret",
-            Dock = DockStyle.Fill,
-            Margin = new Padding(0, 0, 0, 0)
-        };
-        copySecretButton.Click += (_, _) => Clipboard.SetText(SecretBase32);
-
         var secretRow = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2
+            ColumnCount = 1
         };
         secretRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        secretRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
         secretRow.Controls.Add(secretTextBox, 0, 0);
-        secretRow.Controls.Add(copySecretButton, 1, 0);
+        secretTextBox.ShortcutsEnabled = false;
 
         var secretBlock = new TableLayoutPanel
         {

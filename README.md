@@ -73,6 +73,10 @@ After setup, the unlock screen offers two login options:
 
 Google Authenticator does not replace the Master Password permanently and cannot unlock the encrypted vault without the local trusted token. The token stores the vault encryption key protected by Windows DPAPI for the current Windows user; it is not stored in plaintext. The TOTP secret is encrypted with the Master Password-derived key in `.config`; saved vault items are encrypted separately in `.storage`.
 
+In **Settings**, users can keep the default Hybrid login or prefer Google Authenticator code at the next unlock. Changing this preference always requires entering the Master Password again. The Master Password remains available when the 1-day trusted token expires.
+
+Vault items can mark their URL and notes as hidden. Hidden fields stay encrypted in storage and appear as `Hidden` in the main vault list, while remaining available in the protected edit workflow. PasswordTool intentionally has no copy buttons and blocks copy/cut clipboard shortcuts inside the application; normal keyboard navigation remains available.
+
 Older vaults that do not have a paired TOTP secret continue to unlock with the Master Password only. Pairing Google Authenticator is required for newly created vaults.
 
 There is no password recovery, authenticator recovery, backdoor, cloud sync, or reset path. Losing the Master Password or the paired authenticator secret can permanently prevent access to the vault.

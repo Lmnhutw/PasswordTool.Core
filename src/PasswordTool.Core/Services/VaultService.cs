@@ -91,6 +91,15 @@ public sealed class VaultService : IDisposable
         }
     }
 
+    public VaultLoginMode LoginMode
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return storageService.LoadConfig().LoginMode;
+        }
+    }
+
     public void InitializeNewVault(string masterPassword, string totpSecretBase32, string confirmationTotpCode)
     {
         ThrowIfDisposed();
@@ -282,6 +291,52 @@ public sealed class VaultService : IDisposable
         return totpService.VerifyCode(totpSecretBase32!, code);
     }
 
+    public bool TrySetLoginMode(string masterPassword, VaultLoginMode loginMode, out string errorMessage)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        errorMessage = string.Empty;
+
+        if (!Enum.IsDefined(loginMode))
+        {
+            errorMessage = "The selected login mode is not supported.";
+            return false;
+        }
+
+        byte[]? verificationKey = null;
+        try
+        {
+            var config = storageService.LoadConfig();
+            if (!masterPasswordService.TryUnlockConfig(masterPassword, config, out verificationKey, out _))
+            {
+                errorMessage = "The Master Password is incorrect.";
+                return false;
+            }
+
+            config.LoginMode = loginMode;
+            config.UpdatedAt = utcNow();
+            storageService.SaveConfig(config);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or InvalidOperationException
+            or CryptographicException
+            or FormatException
+            or System.Text.Json.JsonException)
+        {
+            errorMessage = "The login setting could not be saved.";
+            return false;
+        }
+        finally
+        {
+            if (verificationKey is { Length: > 0 })
+            {
+                CryptographicOperations.ZeroMemory(verificationKey);
+            }
+        }
+    }
+
     public IReadOnlyList<VaultItem> GetItems()
     {
         ThrowIfDisposed();
@@ -289,7 +344,7 @@ public sealed class VaultService : IDisposable
 
         return vaultData!.Items
             .OrderBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase)
-            .Select(item => Clone(item, includePassword: false))
+            .Select(CloneForList)
             .ToList();
     }
 
@@ -330,7 +385,7 @@ public sealed class VaultService : IDisposable
 
         vaultData!.Items.Add(newItem);
         SaveVault();
-        return Clone(newItem, includePassword: false);
+        return CloneForList(newItem);
     }
 
     public void UpdateItem(VaultItem item)
@@ -344,7 +399,9 @@ public sealed class VaultService : IDisposable
         existing.Username = item.Username.Trim();
         existing.Password = item.Password;
         existing.Url = item.Url.Trim();
+        existing.HideUrl = item.HideUrl;
         existing.Notes = item.Notes;
+        existing.HideNotes = item.HideNotes;
         existing.UpdatedAt = DateTimeOffset.UtcNow;
 
         SaveVault();
@@ -507,9 +564,27 @@ public sealed class VaultService : IDisposable
             Username = item.Username,
             Password = includePassword ? item.Password : string.Empty,
             Url = item.Url,
+            HideUrl = item.HideUrl,
             Notes = item.Notes,
+            HideNotes = item.HideNotes,
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
         };
+    }
+
+    private static VaultItem CloneForList(VaultItem item)
+    {
+        var clone = Clone(item, includePassword: false);
+        if (clone.HideUrl)
+        {
+            clone.Url = string.Empty;
+        }
+
+        if (clone.HideNotes)
+        {
+            clone.Notes = string.Empty;
+        }
+
+        return clone;
     }
 }

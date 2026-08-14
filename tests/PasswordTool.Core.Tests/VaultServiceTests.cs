@@ -139,6 +139,58 @@ public sealed class VaultServiceTests : IDisposable
         Assert.Equal("legacy-secret", vaultService.GetPassword(item.Id, string.Empty));
     }
 
+    [Fact]
+    public void Login_mode_defaults_to_hybrid_and_requires_master_password_to_change()
+    {
+        var storage = new VaultStorageService(tempDirectory);
+        var encryption = new EncryptionService();
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        var code = ComputeTotp(secret);
+        using var vaultService = new VaultService(storage, encryption, totpService);
+
+        vaultService.InitializeNewVault("correct horse battery staple", secret, code);
+
+        Assert.Equal(VaultLoginMode.Hybrid, vaultService.LoginMode);
+        Assert.False(vaultService.TrySetLoginMode("incorrect password", VaultLoginMode.GoogleAuthenticatorCode, out _));
+        Assert.Equal(VaultLoginMode.Hybrid, vaultService.LoginMode);
+        Assert.True(vaultService.TrySetLoginMode("correct horse battery staple", VaultLoginMode.GoogleAuthenticatorCode, out _));
+        Assert.Equal(VaultLoginMode.GoogleAuthenticatorCode, vaultService.LoginMode);
+    }
+
+    [Fact]
+    public void Hidden_url_and_notes_are_preserved_when_vault_items_are_saved()
+    {
+        var storage = new VaultStorageService(tempDirectory);
+        var encryption = new EncryptionService();
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        using var vaultService = new VaultService(storage, encryption, totpService);
+
+        vaultService.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        var item = vaultService.AddItem(new VaultItem
+        {
+            Title = "Private account",
+            Password = "super-secret-value",
+            Url = "https://example.com",
+            HideUrl = true,
+            Notes = "Private note",
+            HideNotes = true
+        });
+
+        var savedItem = vaultService.GetItemForEditing(item.Id, ComputeTotp(secret));
+        Assert.True(savedItem.HideUrl);
+        Assert.True(savedItem.HideNotes);
+        Assert.Equal("https://example.com", savedItem.Url);
+        Assert.Equal("Private note", savedItem.Notes);
+
+        var listItem = Assert.Single(vaultService.GetItems());
+        Assert.True(listItem.HideUrl);
+        Assert.True(listItem.HideNotes);
+        Assert.Empty(listItem.Url);
+        Assert.Empty(listItem.Notes);
+    }
+
     public void Dispose()
     {
         if (!Directory.Exists(tempDirectory))

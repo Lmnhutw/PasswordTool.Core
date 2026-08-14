@@ -12,7 +12,11 @@ public sealed class VaultItem
 
     public string Url { get; set; } = string.Empty;
 
+    public bool HideUrl { get; set; }
+
     public string Notes { get; set; } = string.Empty;
+
+    public bool HideNotes { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

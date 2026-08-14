@@ -14,6 +14,8 @@ public sealed class AppConfig
 
     public string EncryptedTotpSecret { get; set; } = string.Empty;
 
+    public VaultLoginMode LoginMode { get; set; } = VaultLoginMode.Hybrid;
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

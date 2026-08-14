@@ -22,7 +22,6 @@ public sealed class PasswordHashToolForm : Form
     private readonly TextBox generatedHashBase64TextBox = new();
     private readonly Label base64StorageGuidanceLabel = new();
     private readonly Button generateHashButton = new();
-    private readonly Button copyHashButton = new();
 
     private readonly TextBox verifyPasswordInput = new();
     private readonly CheckBox showVerifyPasswordCheckBox = new();
@@ -131,10 +130,6 @@ public sealed class PasswordHashToolForm : Form
         base64StorageGuidanceLabel.Text = "Store the complete generated hash string in one PasswordHash text column. Salt and hash are encoded as Base64 so they can be stored as text. Base64 is not encryption.";
         base64StorageGuidanceLabel.TextAlign = ContentAlignment.MiddleLeft;
 
-        copyHashButton.Text = "Copy Hash";
-        copyHashButton.Width = 120;
-        copyHashButton.Click += CopyHashButton_Click;
-
         layout.Controls.Add(CreateLabel("Password"), 0, 0);
         layout.Controls.Add(passwordRow, 1, 0);
         layout.Controls.Add(CreateLabel("Algorithm"), 0, 1);
@@ -150,7 +145,6 @@ public sealed class PasswordHashToolForm : Form
         layout.Controls.Add(new Panel { Dock = DockStyle.Fill }, 0, 6);
         layout.Controls.Add(base64StorageGuidanceLabel, 1, 6);
         layout.Controls.Add(new Panel { Dock = DockStyle.Fill }, 0, 7);
-        layout.Controls.Add(copyHashButton, 1, 7);
 
         group.Controls.Add(layout);
         return group;
@@ -351,16 +345,6 @@ public sealed class PasswordHashToolForm : Form
         {
             ShowError(ex.Message);
         }
-    }
-
-    private void CopyHashButton_Click(object? sender, EventArgs e)
-    {
-        if (!ValidateRequired(generatedHashTextBox.Text, "Generate a hash before copying."))
-        {
-            return;
-        }
-
-        Clipboard.SetText(generatedHashTextBox.Text);
     }
 
     private void VerifyPasswordButton_Click(object? sender, EventArgs e)

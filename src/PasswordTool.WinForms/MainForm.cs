@@ -113,7 +113,9 @@ public partial class MainForm : Form
     {
         while (!IsDisposed)
         {
-            using var unlockVaultForm = new UnlockVaultForm(vaultService.CanUnlockWithGoogleAuthenticatorToken);
+            using var unlockVaultForm = new UnlockVaultForm(
+                vaultService.CanUnlockWithGoogleAuthenticatorToken,
+                vaultService.LoginMode);
             if (unlockVaultForm.ShowDialog(this) != DialogResult.OK)
             {
                 Close();
