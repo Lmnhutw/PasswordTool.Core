@@ -136,7 +136,56 @@ public sealed class VaultServiceTests : IDisposable
         Assert.False(vaultService.CanUnlockWithGoogleAuthenticatorToken);
 
         var item = Assert.Single(vaultService.GetItems());
+        Assert.Equal(VaultItemType.Password, item.Type);
         Assert.Equal("legacy-secret", vaultService.GetPassword(item.Id, string.Empty));
+    }
+
+    [Fact]
+    public void Recovery_codes_and_encrypted_json_backup_round_trip_without_overwriting_existing_items()
+    {
+        var sourceDirectory = Path.Combine(tempDirectory, "source");
+        var destinationDirectory = Path.Combine(tempDirectory, "destination");
+        var encryption = new EncryptionService();
+        var totpService = new TotpService();
+        var sourceSecret = totpService.GenerateSecret();
+        var sourceCode = ComputeTotp(sourceSecret);
+
+        string backupJson;
+        using (var source = new VaultService(new VaultStorageService(sourceDirectory), encryption, totpService))
+        {
+            source.InitializeNewVault("source master password", sourceSecret, sourceCode);
+            source.AddItem(new VaultItem { Title = "Email", Password = "source-password" });
+            source.AddItem(new VaultItem
+            {
+                Type = VaultItemType.RecoveryCodes,
+                Title = "Email recovery",
+                RecoveryCodes = ["abcd-1234", "efgh-5678"]
+            });
+            backupJson = source.ExportBackupJson("correct backup passphrase", sourceCode);
+        }
+
+        var destinationStorage = new VaultStorageService(destinationDirectory);
+        var destinationSecret = totpService.GenerateSecret();
+        var destinationCode = ComputeTotp(destinationSecret);
+        using var destination = new VaultService(destinationStorage, encryption, totpService);
+        destination.InitializeNewVault("destination master password", destinationSecret, destinationCode);
+        var existing = destination.AddItem(new VaultItem { Title = "Existing", Password = "existing-password" });
+
+        var preview = destination.PreviewBackupImport(backupJson, "correct backup passphrase", destinationCode);
+        Assert.Equal(2, preview.NewItemCount);
+        Assert.Equal(2, destination.ImportBackupJson(backupJson, "correct backup passphrase", destinationCode));
+        Assert.Equal(0, destination.ImportBackupJson(backupJson, "correct backup passphrase", destinationCode));
+
+        var items = destination.GetItems();
+        Assert.Equal(3, items.Count);
+        Assert.Equal("existing-password", destination.GetPassword(existing.Id, destinationCode));
+        var recoveryItem = Assert.Single(items, item => item.Type == VaultItemType.RecoveryCodes);
+        Assert.Equal(2, recoveryItem.RecoveryCodeCount);
+        Assert.Equal(["abcd-1234", "efgh-5678"], destination.GetRecoveryCodes(recoveryItem.Id, destinationCode));
+
+        var encryptedStorage = File.ReadAllText(destinationStorage.VaultPath);
+        Assert.DoesNotContain("source-password", encryptedStorage);
+        Assert.DoesNotContain("abcd-1234", encryptedStorage);
     }
 
     [Fact]

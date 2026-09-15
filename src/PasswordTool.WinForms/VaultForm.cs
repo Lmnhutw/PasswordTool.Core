@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using PasswordTool.Core.Models;
 using PasswordTool.Core.Services;
 
@@ -10,7 +11,7 @@ public sealed class VaultForm : Form
     private readonly DataGridView itemsGrid = new();
     private readonly Button editButton = new();
     private readonly Button deleteButton = new();
-    private readonly Button viewPasswordButton = new();
+    private readonly Button viewSecretButton = new();
 
     public VaultForm(VaultService vaultService)
     {
@@ -59,24 +60,32 @@ public sealed class VaultForm : Form
         var settingsButton = CreateToolbarButton("Settings");
         settingsButton.Click += SettingsButton_Click;
 
+        var exportButton = CreateToolbarButton("Export JSON");
+        exportButton.Click += ExportButton_Click;
+
+        var importButton = CreateToolbarButton("Import JSON");
+        importButton.Click += ImportButton_Click;
+
         editButton.Text = "Edit";
-        editButton.Width = 110;
+        editButton.Width = 90;
         editButton.Click += EditButton_Click;
 
         deleteButton.Text = "Delete";
-        deleteButton.Width = 110;
+        deleteButton.Width = 90;
         deleteButton.Click += DeleteButton_Click;
 
-        viewPasswordButton.Text = "View Password";
-        viewPasswordButton.Width = 130;
-        viewPasswordButton.Click += ViewPasswordButton_Click;
+        viewSecretButton.Text = "View Secret";
+        viewSecretButton.Width = 110;
+        viewSecretButton.Click += ViewSecretButton_Click;
 
         toolbar.Controls.Add(addButton);
         toolbar.Controls.Add(hashToolButton);
         toolbar.Controls.Add(settingsButton);
+        toolbar.Controls.Add(exportButton);
+        toolbar.Controls.Add(importButton);
         toolbar.Controls.Add(editButton);
         toolbar.Controls.Add(deleteButton);
-        toolbar.Controls.Add(viewPasswordButton);
+        toolbar.Controls.Add(viewSecretButton);
 
         ConfigureGrid();
 
@@ -100,9 +109,10 @@ public sealed class VaultForm : Form
         itemsGrid.SelectionChanged += (_, _) => UpdateButtonState();
         itemsGrid.CellDoubleClick += (_, _) => EditSelectedItem();
 
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Title", HeaderText = "Title", FillWeight = 22 });
+        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Title", HeaderText = "Title", FillWeight = 20 });
+        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Type", HeaderText = "Type", FillWeight = 13 });
         itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Username", HeaderText = "Username", FillWeight = 18 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Password", HeaderText = "Password", FillWeight = 12 });
+        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Secret", HeaderText = "Secret", FillWeight = 12 });
         itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Url", HeaderText = "Url", FillWeight = 20 });
         itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Notes", HeaderText = "Notes", FillWeight = 18 });
         itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "CreatedAt", HeaderText = "Created", FillWeight = 12 });
@@ -117,14 +127,15 @@ public sealed class VaultForm : Form
         {
             var rowIndex = itemsGrid.Rows.Add(
                 item.Title,
+                item.Type == VaultItemType.Password ? "Password" : "Recovery codes",
                 item.Username,
-                "********",
+                item.Type == VaultItemType.Password ? "********" : $"{item.RecoveryCodeCount} codes",
                 item.HideUrl ? "Hidden" : item.Url,
                 item.HideNotes ? "Hidden" : item.Notes,
                 item.CreatedAt.ToLocalTime().ToString("g"),
                 item.UpdatedAt.ToLocalTime().ToString("g"));
 
-            itemsGrid.Rows[rowIndex].Tag = item.Id;
+            itemsGrid.Rows[rowIndex].Tag = new VaultItemRowTag(item.Id, item.Type);
         }
 
         UpdateButtonState();
@@ -217,14 +228,19 @@ public sealed class VaultForm : Form
         });
     }
 
-    private void ViewPasswordButton_Click(object? sender, EventArgs e)
+    private void ViewSecretButton_Click(object? sender, EventArgs e)
     {
-        if (!TryGetSelectedItemId(out var itemId))
+        if (!TryGetSelectedItem(out var selectedItem))
         {
             return;
         }
 
-        var code = RequestTotpCode("View Password", "Enter your Google Authenticator code before viewing this password.");
+        var isPassword = selectedItem.Type == VaultItemType.Password;
+        var code = RequestTotpCode(
+            isPassword ? "View Password" : "View Recovery Codes",
+            isPassword
+                ? "Enter your Google Authenticator code before viewing this password."
+                : "Enter your Google Authenticator code before viewing these recovery codes.");
         if (code is null)
         {
             return;
@@ -232,8 +248,108 @@ public sealed class VaultForm : Form
 
         RunVaultAction(() =>
         {
-            var password = vaultService.GetPassword(itemId, code);
-            ShowPasswordDialog(password);
+            if (isPassword)
+            {
+                ShowPasswordDialog(vaultService.GetPassword(selectedItem.Id, code));
+            }
+            else
+            {
+                ShowRecoveryCodesDialog(vaultService.GetRecoveryCodes(selectedItem.Id, code));
+            }
+        });
+    }
+
+    private void ExportButton_Click(object? sender, EventArgs e)
+    {
+        using var passphraseForm = new BackupPassphraseForm(requireConfirmation: true);
+        if (passphraseForm.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        using var saveDialog = new SaveFileDialog
+        {
+            Title = "Export Encrypted PasswordTool Backup",
+            Filter = "PasswordTool JSON backup (*.json)|*.json",
+            AddExtension = true,
+            DefaultExt = "json",
+            FileName = $"PasswordTool-backup-{DateTime.Now:yyyy-MM-dd}.json",
+            OverwritePrompt = true
+        };
+        if (saveDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        var code = RequestTotpCode("Export JSON Backup", "Enter your Google Authenticator code before exporting vault secrets.");
+        if (code is null)
+        {
+            return;
+        }
+
+        RunVaultAction(() =>
+        {
+            var backupJson = vaultService.ExportBackupJson(passphraseForm.Passphrase, code);
+            File.WriteAllText(saveDialog.FileName, backupJson);
+            MessageBox.Show("The encrypted JSON backup was exported successfully.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        });
+    }
+
+    private void ImportButton_Click(object? sender, EventArgs e)
+    {
+        using var openDialog = new OpenFileDialog
+        {
+            Title = "Import PasswordTool JSON Backup",
+            Filter = "PasswordTool JSON backup (*.json)|*.json",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (openDialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        string backupJson;
+        try
+        {
+            var fileInfo = new FileInfo(openDialog.FileName);
+            if (fileInfo.Length > VaultBackupService.MaxBackupJsonCharacters)
+            {
+                throw new InvalidDataException("The selected backup exceeds the 10 MB limit.");
+            }
+
+            backupJson = File.ReadAllText(openDialog.FileName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(ex.Message, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        using var passphraseForm = new BackupPassphraseForm(requireConfirmation: false);
+        if (passphraseForm.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        var code = RequestTotpCode("Import JSON Backup", "Enter your Google Authenticator code before reviewing imported vault items.");
+        if (code is null)
+        {
+            return;
+        }
+
+        RunVaultAction(() =>
+        {
+            var plan = vaultService.PreviewBackupImport(backupJson, passphraseForm.Passphrase, code);
+            using var reviewForm = new VaultImportReviewForm(plan);
+            if (reviewForm.ShowDialog(this) != DialogResult.OK)
+            {
+                return;
+            }
+
+            var importedCount = vaultService.ImportBackupJson(backupJson, passphraseForm.Passphrase, code);
+            LoadItems();
+            MessageBox.Show($"Imported {importedCount} new vault item(s). Existing items were not overwritten.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
         });
     }
 
@@ -303,16 +419,74 @@ public sealed class VaultForm : Form
         dialog.ShowDialog(this);
     }
 
+    private void ShowRecoveryCodesDialog(IReadOnlyList<string> recoveryCodes)
+    {
+        using var dialog = new Form
+        {
+            Text = "Recovery Codes",
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ClientSize = new Size(560, 420),
+            Padding = new Padding(16)
+        };
+        FormIconService.Apply(dialog);
+
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+
+        var heading = new Label
+        {
+            Text = $"{recoveryCodes.Count} recovery codes",
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        var codesTextBox = new TextBox
+        {
+            Text = string.Join(Environment.NewLine, recoveryCodes),
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            ShortcutsEnabled = false
+        };
+        var closeButton = new Button { Text = "Close", Width = 100, DialogResult = DialogResult.OK };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
+        buttons.Controls.Add(closeButton);
+
+        layout.Controls.Add(heading, 0, 0);
+        layout.Controls.Add(codesTextBox, 0, 1);
+        layout.Controls.Add(buttons, 0, 2);
+        dialog.Controls.Add(layout);
+        dialog.AcceptButton = closeButton;
+        dialog.ShowDialog(this);
+    }
+
     private bool TryGetSelectedItemId(out Guid itemId)
     {
         itemId = Guid.Empty;
 
-        if (itemsGrid.CurrentRow?.Tag is not Guid selectedId)
+        if (!TryGetSelectedItem(out var selectedItem))
         {
             return false;
         }
 
-        itemId = selectedId;
+        itemId = selectedItem.Id;
+        return true;
+    }
+
+    private bool TryGetSelectedItem(out VaultItemRowTag selectedItem)
+    {
+        selectedItem = null!;
+        if (itemsGrid.CurrentRow?.Tag is not VaultItemRowTag rowTag)
+        {
+            return false;
+        }
+
+        selectedItem = rowTag;
         return true;
     }
 
@@ -321,7 +495,15 @@ public sealed class VaultForm : Form
         var hasSelection = TryGetSelectedItemId(out _);
         editButton.Enabled = hasSelection;
         deleteButton.Enabled = hasSelection;
-        viewPasswordButton.Enabled = hasSelection;
+        viewSecretButton.Enabled = hasSelection;
+        if (hasSelection && TryGetSelectedItem(out var selectedItem))
+        {
+            viewSecretButton.Text = selectedItem.Type == VaultItemType.Password ? "View Password" : "View Codes";
+        }
+        else
+        {
+            viewSecretButton.Text = "View Secret";
+        }
     }
 
     private static Button CreateToolbarButton(string text)
@@ -329,7 +511,7 @@ public sealed class VaultForm : Form
         return new Button
         {
             Text = text,
-            Width = 110,
+            Width = 95,
             Height = 32
         };
     }
@@ -344,6 +526,7 @@ public sealed class VaultForm : Form
             or InvalidOperationException
             or UnauthorizedAccessException
             or IOException
+            or CryptographicException
             or ExternalException)
         {
             MessageBox.Show(ex.Message, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -354,4 +537,6 @@ public sealed class VaultForm : Form
     {
 
     }
+
+    private sealed record VaultItemRowTag(Guid Id, VaultItemType Type);
 }

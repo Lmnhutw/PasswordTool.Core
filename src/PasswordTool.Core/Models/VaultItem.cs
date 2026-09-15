@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PasswordTool.Core.Models;
 
 public sealed class VaultItem
@@ -6,9 +8,16 @@ public sealed class VaultItem
 
     public string Title { get; set; } = string.Empty;
 
+    public VaultItemType Type { get; set; } = VaultItemType.Password;
+
     public string Username { get; set; } = string.Empty;
 
     public string Password { get; set; } = string.Empty;
+
+    public List<string> RecoveryCodes { get; set; } = [];
+
+    [JsonIgnore]
+    public int RecoveryCodeCount { get; set; }
 
     public string Url { get; set; } = string.Empty;
 

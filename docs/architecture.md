@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a local password hashing tool where the hashing logic is separated from UI and API layers.
+Build a local encrypted password vault and password hashing tool where security and business logic are separated from UI and API layers.
 
 ## Dependency Direction
 
@@ -26,6 +26,9 @@ Owns:
 - stored hash parsing and inspection
 - constant-time comparison helpers
 - algorithm metadata and registry
+- encrypted vault item invariants and CRUD workflows
+- recovery-code parsing and validation
+- encrypted JSON backup serialization, validation, and import conflict classification
 
 Does not own:
 
@@ -46,8 +49,29 @@ Owns:
 - show/hide password toggle
 - hash inspector/debug panel
 - warning labels for educational-only algorithms
+- clipboard-triggered recovery-code review UI
+- JSON backup file selection, passphrase prompts, and import review UI
 
 Does not own hashing logic. It should call `IPasswordHasherRegistry`, `IPasswordHasher`, and `IPasswordHashInspector` from `PasswordTool.Core`.
+
+WinForms also does not own vault-item validation, backup cryptography, backup schema parsing, or import conflict rules. It delegates those operations to `VaultService` and `VaultBackupService` through the Core boundary.
+
+## Vault Item Compatibility
+
+`VaultItem.Type` defaults to `Password`, so existing encrypted vault JSON that predates recovery-code support deserializes without migration or data loss. A password item may contain a password but no recovery-code list. A recovery-code item may contain recovery codes but no password. Core validates this invariant before add, update, export, or import.
+
+## JSON Backup Boundary
+
+The exported file is JSON, but vault items remain encrypted. The envelope contains a format/version marker, fixed PBKDF2-HMAC-SHA256 metadata, a random salt, and an AES-256-GCM encrypted payload. The payload excludes `.config`, the encrypted TOTP secret, and `.trusted-unlock`.
+
+Import follows a validate-then-commit workflow:
+
+1. Enforce the file-size and JSON-depth limits.
+2. Validate the exact backup format, version, KDF parameters, and salt size before key derivation.
+3. Authenticate and decrypt the AES-GCM payload.
+4. Validate every item, unique ID, field length, item type, and recovery-code list.
+5. Classify IDs as new, duplicate, or conflict for UI review.
+6. Add only new IDs and save the encrypted vault once; roll back the in-memory additions if persistence fails.
 
 ### PasswordTool.Api
 

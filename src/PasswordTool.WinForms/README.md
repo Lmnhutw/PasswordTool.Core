@@ -22,3 +22,10 @@ Required forms:
 - `VerifyTotpForm.cs`
 - `VaultForm.cs`
 - `VaultItemEditorForm.cs`
+- `RecoveryCodesReviewForm.cs`
+- `BackupPassphraseForm.cs`
+- `VaultImportReviewForm.cs`
+
+`VaultItemEditorForm` supports password and recovery-code items. Recovery-code input is read directly from the Windows clipboard only after the user clicks `Paste from Clipboard & Review`; parsed codes are shown for confirmation before they can be saved.
+
+`VaultForm` exposes encrypted JSON export/import. WinForms owns file pickers, passphrase prompts, TOTP prompts, and review dialogs, while parsing, encryption, validation, conflict classification, and atomic vault mutation remain in `PasswordTool.Core`.

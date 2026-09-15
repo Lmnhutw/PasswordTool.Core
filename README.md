@@ -77,6 +77,10 @@ In **Settings**, users can keep the default Hybrid login or prefer Google Authen
 
 Vault items can mark their URL and notes as hidden. Hidden fields stay encrypted in storage and appear as `Hidden` in the main vault list, while remaining available in the protected edit workflow. PasswordTool intentionally has no copy buttons and blocks copy/cut clipboard shortcuts inside the application; normal keyboard navigation remains available.
 
+Vault items can store either a password or a set of recovery codes. For recovery codes, choose `Recovery codes`, click `Paste from Clipboard & Review`, verify the normalized list, and then save. Recovery codes are encrypted in `.storage` and require the same Google Authenticator verification as viewing a password.
+
+The vault toolbar can export and import a PasswordTool JSON backup. The JSON is an encrypted, versioned backup envelope protected by a separate passphrase of at least 12 characters; it never exports the Master Password configuration, TOTP secret, or trusted unlock token. Import validates the complete file first, shows new, duplicate, and conflicting item IDs for review, and imports only new items without overwriting existing entries.
+
 Older vaults that do not have a paired TOTP secret continue to unlock with the Master Password only. Pairing Google Authenticator is required for newly created vaults.
 
 There is no password recovery, authenticator recovery, backdoor, cloud sync, or reset path. Losing the Master Password or the paired authenticator secret can permanently prevent access to the vault.
@@ -112,6 +116,7 @@ src/
       TotpService.cs
       TrustedUnlockTokenService.cs
       VaultStorageService.cs
+      VaultBackupService.cs
       VaultService.cs
   PasswordTool.WinForms/
     MainForm.cs
@@ -121,6 +126,9 @@ src/
     VerifyTotpForm.cs
     VaultForm.cs
     VaultItemEditorForm.cs
+    RecoveryCodesReviewForm.cs
+    BackupPassphraseForm.cs
+    VaultImportReviewForm.cs
   PasswordTool.Api/
 tests/
   PasswordTool.Core.Tests/

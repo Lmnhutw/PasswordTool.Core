@@ -11,6 +11,7 @@ public sealed class VaultService : IDisposable
     private readonly MasterPasswordService masterPasswordService;
     private readonly TotpService totpService;
     private readonly TrustedUnlockTokenService trustedUnlockTokenService;
+    private readonly VaultBackupService backupService;
     private readonly VaultStorageService storageService;
     private readonly Func<DateTimeOffset> utcNow;
 
@@ -36,6 +37,7 @@ public sealed class VaultService : IDisposable
         this.encryptionService = encryptionService;
         this.totpService = totpService;
         this.trustedUnlockTokenService = trustedUnlockTokenService ?? new TrustedUnlockTokenService();
+        backupService = new VaultBackupService(encryptionService);
         this.utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         masterPasswordService = new MasterPasswordService(encryptionService);
     }
@@ -156,6 +158,7 @@ public sealed class VaultService : IDisposable
             var encryptedVaultJson = storageService.LoadVaultPayload();
             var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, derivedKey);
             decryptedVault.Items ??= [];
+            NormalizeItems(decryptedVault.Items);
 
             encryptionKey = derivedKey;
             totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret)
@@ -231,6 +234,7 @@ public sealed class VaultService : IDisposable
             var encryptedVaultJson = storageService.LoadVaultPayload();
             var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, trustedKey);
             decryptedVault.Items ??= [];
+            NormalizeItems(decryptedVault.Items);
 
             encryptionKey = trustedKey;
             trustedKey = null;
@@ -368,7 +372,86 @@ public sealed class VaultService : IDisposable
         ThrowIfDisposed();
         EnsureOpen();
         RequireSensitiveTotp(totpCode);
-        return FindItem(id).Password;
+        var item = FindItem(id);
+        if (item.Type != VaultItemType.Password)
+        {
+            throw new InvalidOperationException("This vault item stores recovery codes, not a password.");
+        }
+
+        return item.Password;
+    }
+
+    public IReadOnlyList<string> GetRecoveryCodes(Guid id, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+
+        var item = FindItem(id);
+        if (item.Type != VaultItemType.RecoveryCodes)
+        {
+            throw new InvalidOperationException("This vault item does not store recovery codes.");
+        }
+
+        return item.RecoveryCodes.ToList();
+    }
+
+    public string ExportBackupJson(string passphrase, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+        return backupService.CreateBackup(vaultData!.Items, passphrase, utcNow());
+    }
+
+    public VaultBackupImportPlan PreviewBackupImport(string backupJson, string passphrase, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+
+        var importedItems = backupService.ReadBackup(backupJson, passphrase);
+        return backupService.CreateImportPlan(importedItems, vaultData!.Items);
+    }
+
+    public int ImportBackupJson(string backupJson, string passphrase, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+
+        var importedItems = backupService.ReadBackup(backupJson, passphrase);
+        var plan = backupService.CreateImportPlan(importedItems, vaultData!.Items);
+        var newIds = plan.Items
+            .Where(item => item.Status == VaultBackupImportStatus.New)
+            .Select(item => item.Id)
+            .ToHashSet();
+
+        if (newIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var newItems = importedItems
+            .Where(item => newIds.Contains(item.Id))
+            .Select(item => Clone(item, includePassword: true))
+            .ToList();
+
+        vaultData.Items.AddRange(newItems);
+        try
+        {
+            SaveVault();
+            return newItems.Count;
+        }
+        catch
+        {
+            foreach (var newItem in newItems)
+            {
+                vaultData.Items.Remove(newItem);
+            }
+
+            throw;
+        }
     }
 
     public VaultItem AddItem(VaultItem item)
@@ -396,8 +479,10 @@ public sealed class VaultService : IDisposable
 
         var existing = FindItem(item.Id);
         existing.Title = item.Title.Trim();
+        existing.Type = item.Type;
         existing.Username = item.Username.Trim();
-        existing.Password = item.Password;
+        existing.Password = item.Type == VaultItemType.Password ? item.Password : string.Empty;
+        existing.RecoveryCodes = item.Type == VaultItemType.RecoveryCodes ? [.. item.RecoveryCodes] : [];
         existing.Url = item.Url.Trim();
         existing.HideUrl = item.HideUrl;
         existing.Notes = item.Notes;
@@ -549,10 +634,29 @@ public sealed class VaultService : IDisposable
             throw new ArgumentException("Title is required.", nameof(item));
         }
 
-        if (string.IsNullOrWhiteSpace(item.Password))
+        if (!Enum.IsDefined(item.Type))
+        {
+            throw new ArgumentException("The selected vault item type is not supported.", nameof(item));
+        }
+
+        item.RecoveryCodes ??= [];
+        if (item.Type == VaultItemType.Password && string.IsNullOrWhiteSpace(item.Password))
         {
             throw new ArgumentException("Password is required.", nameof(item));
         }
+
+        if (item.Type == VaultItemType.Password && item.RecoveryCodes.Count != 0)
+        {
+            throw new ArgumentException("A password item cannot contain recovery codes.", nameof(item));
+        }
+
+        if (item.Type == VaultItemType.RecoveryCodes
+            && (!string.IsNullOrEmpty(item.Password) || item.RecoveryCodes.Count < 2))
+        {
+            throw new ArgumentException("A recovery-code item requires at least two codes and cannot contain a password.", nameof(item));
+        }
+
+        VaultBackupService.ValidateItems([item]);
     }
 
     private static VaultItem Clone(VaultItem item, bool includePassword)
@@ -561,8 +665,10 @@ public sealed class VaultService : IDisposable
         {
             Id = item.Id,
             Title = item.Title,
+            Type = item.Type,
             Username = item.Username,
             Password = includePassword ? item.Password : string.Empty,
+            RecoveryCodes = includePassword ? [.. item.RecoveryCodes] : [],
             Url = item.Url,
             HideUrl = item.HideUrl,
             Notes = item.Notes,
@@ -575,6 +681,7 @@ public sealed class VaultService : IDisposable
     private static VaultItem CloneForList(VaultItem item)
     {
         var clone = Clone(item, includePassword: false);
+        clone.RecoveryCodeCount = item.RecoveryCodes.Count;
         if (clone.HideUrl)
         {
             clone.Url = string.Empty;
@@ -586,5 +693,13 @@ public sealed class VaultService : IDisposable
         }
 
         return clone;
+    }
+
+    private static void NormalizeItems(IEnumerable<VaultItem> items)
+    {
+        foreach (var item in items)
+        {
+            item.RecoveryCodes ??= [];
+        }
     }
 }
