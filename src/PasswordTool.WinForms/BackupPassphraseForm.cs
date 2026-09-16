@@ -14,7 +14,7 @@ internal sealed class BackupPassphraseForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(540, requireConfirmation ? 230 : 190);
+        ClientSize = new Size(540, requireConfirmation ? 250 : 210);
         Padding = new Padding(16);
         FormIconService.Apply(this);
         BuildInterface();
@@ -27,7 +27,7 @@ internal sealed class BackupPassphraseForm : Form
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = requireConfirmation ? 4 : 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 55));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 75));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         if (requireConfirmation)
         {
@@ -38,8 +38,8 @@ internal sealed class BackupPassphraseForm : Form
         var explanation = new Label
         {
             Text = requireConfirmation
-                ? "Use at least 12 characters. This passphrase is required to import the backup."
-                : "Enter the passphrase that was used when this backup was exported.",
+                ? "Create a separate password (at least 12 characters) to encrypt this exported backup. You will need this exact password to import it later; it is different from your Master Password."
+                : "Enter the backup password you created when this file was exported. It decrypts this backup and is different from your Master Password.",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft
         };
@@ -48,14 +48,14 @@ internal sealed class BackupPassphraseForm : Form
 
         passphraseTextBox.Dock = DockStyle.Fill;
         passphraseTextBox.UseSystemPasswordChar = true;
-        layout.Controls.Add(CreateLabel("Passphrase"), 0, 1);
+        layout.Controls.Add(CreateLabel(requireConfirmation ? "Export password" : "Backup password"), 0, 1);
         layout.Controls.Add(passphraseTextBox, 1, 1);
 
         if (requireConfirmation)
         {
             confirmationTextBox.Dock = DockStyle.Fill;
             confirmationTextBox.UseSystemPasswordChar = true;
-            layout.Controls.Add(CreateLabel("Confirm"), 0, 2);
+            layout.Controls.Add(CreateLabel("Confirm password"), 0, 2);
             layout.Controls.Add(confirmationTextBox, 1, 2);
         }
 

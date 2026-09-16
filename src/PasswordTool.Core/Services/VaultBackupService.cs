@@ -24,6 +24,11 @@ public sealed class VaultBackupService
     private const int MaxNotesLength = 100_000;
     private const int MaxRecoveryCodes = 100;
     private const int MaxRecoveryCodeLength = 128;
+    private const int MaxFolderLength = 200;
+    private const int MaxTags = 20;
+    private const int MaxTagLength = 100;
+    private const int MaxTotpSecretLength = 512;
+    private static readonly TotpService TotpService = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -163,6 +168,15 @@ public sealed class VaultBackupService
             ValidateLength(item.Username, MaxUsernameLength, "username");
             ValidateLength(item.Url, MaxUrlLength, "URL");
             ValidateLength(item.Notes, MaxNotesLength, "notes");
+            ValidateLength(item.Folder, MaxFolderLength, "folder");
+            ValidateLength(item.TotpSecretBase32, MaxTotpSecretLength, "TOTP secret");
+            item.Tags ??= [];
+            if (item.Tags.Count > MaxTags
+                || item.Tags.Any(tag => string.IsNullOrWhiteSpace(tag) || tag.Length > MaxTagLength)
+                || item.Tags.Distinct(StringComparer.OrdinalIgnoreCase).Count() != item.Tags.Count)
+            {
+                throw new InvalidDataException($"Item '{item.Title}' contains an invalid tag list.");
+            }
 
             if (!Enum.IsDefined(item.Type))
             {
@@ -177,12 +191,18 @@ public sealed class VaultBackupService
                 {
                     throw new InvalidDataException($"Password item '{item.Title}' contains recovery-code data.");
                 }
+
+                if (!string.IsNullOrEmpty(item.TotpSecretBase32)
+                    && !TotpService.TryNormalizeWebsiteSecret(item.TotpSecretBase32, out _))
+                {
+                    throw new InvalidDataException($"Password item '{item.Title}' contains an invalid TOTP secret.");
+                }
             }
             else
             {
-                if (!string.IsNullOrEmpty(item.Password))
+                if (!string.IsNullOrEmpty(item.Password) || !string.IsNullOrEmpty(item.TotpSecretBase32))
                 {
-                    throw new InvalidDataException($"Recovery-code item '{item.Title}' contains password data.");
+                    throw new InvalidDataException($"Recovery-code item '{item.Title}' contains password or TOTP data.");
                 }
 
                 var parsedCodes = RecoveryCodeParser.Parse(string.Join('\n', item.RecoveryCodes));
@@ -264,13 +284,17 @@ public sealed class VaultBackupService
             && left.Title == right.Title
             && left.Username == right.Username
             && left.Password == right.Password
+            && left.TotpSecretBase32 == right.TotpSecretBase32
             && left.Url == right.Url
             && left.HideUrl == right.HideUrl
             && left.Notes == right.Notes
             && left.HideNotes == right.HideNotes
+            && left.IsFavorite == right.IsFavorite
+            && left.Folder == right.Folder
             && left.CreatedAt == right.CreatedAt
             && left.UpdatedAt == right.UpdatedAt
-            && left.RecoveryCodes.SequenceEqual(right.RecoveryCodes, StringComparer.Ordinal);
+            && left.RecoveryCodes.SequenceEqual(right.RecoveryCodes, StringComparer.Ordinal)
+            && left.Tags.SequenceEqual(right.Tags, StringComparer.Ordinal);
     }
 
     private static VaultItem Clone(VaultItem item)
@@ -282,11 +306,15 @@ public sealed class VaultBackupService
             Title = item.Title,
             Username = item.Username,
             Password = item.Password,
+            TotpSecretBase32 = item.TotpSecretBase32,
             RecoveryCodes = [.. item.RecoveryCodes],
             Url = item.Url,
             HideUrl = item.HideUrl,
             Notes = item.Notes,
             HideNotes = item.HideNotes,
+            IsFavorite = item.IsFavorite,
+            Folder = item.Folder,
+            Tags = [.. item.Tags],
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
         };

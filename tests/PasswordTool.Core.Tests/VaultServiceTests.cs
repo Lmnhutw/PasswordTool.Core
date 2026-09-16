@@ -110,18 +110,26 @@ public sealed class VaultServiceTests : IDisposable
         try
         {
             storage.SaveConfig(config);
-            storage.SaveVaultPayload(encryption.EncryptObject(new VaultData
-            {
-                Items =
-                [
-                    new VaultItem
+            var legacyItemId = Guid.NewGuid();
+            var legacyJson = $$"""
+                {
+                  "Version": 1,
+                  "Items": [
                     {
-                        Id = Guid.NewGuid(),
-                        Title = "Legacy",
-                        Password = "legacy-secret"
+                      "Id": "{{legacyItemId}}",
+                      "Title": "Legacy",
+                      "Username": "",
+                      "Password": "legacy-secret",
+                      "RecoveryCodes": [],
+                      "Url": "",
+                      "HideUrl": false,
+                      "Notes": "",
+                      "HideNotes": false
                     }
-                ]
-            }, key));
+                  ]
+                }
+                """;
+            storage.SaveVaultPayload(encryption.EncryptString(legacyJson, key));
         }
         finally
         {
@@ -224,7 +232,11 @@ public sealed class VaultServiceTests : IDisposable
             Url = "https://example.com",
             HideUrl = true,
             Notes = "Private note",
-            HideNotes = true
+            HideNotes = true,
+            IsFavorite = true,
+            Folder = "Personal",
+            Tags = ["email", "important"],
+            TotpSecretBase32 = "JBSWY3DPEHPK3PXP"
         });
 
         var savedItem = vaultService.GetItemForEditing(item.Id, ComputeTotp(secret));
@@ -232,12 +244,64 @@ public sealed class VaultServiceTests : IDisposable
         Assert.True(savedItem.HideNotes);
         Assert.Equal("https://example.com", savedItem.Url);
         Assert.Equal("Private note", savedItem.Notes);
+        Assert.True(savedItem.IsFavorite);
+        Assert.Equal("Personal", savedItem.Folder);
+        Assert.Equal(["email", "important"], savedItem.Tags);
+        Assert.Equal("JBSWY3DPEHPK3PXP", savedItem.TotpSecretBase32);
+        Assert.DoesNotContain("JBSWY3DPEHPK3PXP", File.ReadAllText(storage.VaultPath));
 
         var listItem = Assert.Single(vaultService.GetItems());
         Assert.True(listItem.HideUrl);
         Assert.True(listItem.HideNotes);
         Assert.Empty(listItem.Url);
         Assert.Empty(listItem.Notes);
+        Assert.True(listItem.HasTotp);
+        Assert.Empty(listItem.TotpSecretBase32);
+    }
+
+    [Fact]
+    public void Successful_sensitive_totp_verification_opens_a_five_minute_session()
+    {
+        var now = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
+        var storage = new VaultStorageService(tempDirectory);
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        var code = ComputeTotp(secret);
+        using var vault = new VaultService(storage, new EncryptionService(), totpService, utcNow: () => now);
+        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        var item = vault.AddItem(new VaultItem { Title = "Email", Password = "secret" });
+
+        Assert.False(vault.IsSensitiveSessionActive);
+        Assert.True(vault.VerifyTotpForSensitiveAction(code));
+        Assert.True(vault.IsSensitiveSessionActive);
+        Assert.Equal("secret", vault.GetPassword(item.Id, string.Empty));
+
+        now = now.AddMinutes(5).AddSeconds(1);
+        Assert.False(vault.IsSensitiveSessionActive);
+        Assert.Throws<UnauthorizedAccessException>(() => vault.GetPassword(item.Id, "000000"));
+    }
+
+    [Fact]
+    public void Csv_import_previews_adds_and_then_skips_matching_accounts()
+    {
+        var storage = new VaultStorageService(tempDirectory);
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        var code = ComputeTotp(secret);
+        using var vault = new VaultService(storage, new EncryptionService(), totpService);
+        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        const string csv = "name,url,username,password,login_totp\nEmail,https://example.com,user@example.com,password,JBSWY3DPEHPK3PXP";
+
+        var plan = vault.PreviewCsvImport(csv, code);
+        Assert.Equal(1, plan.NewItemCount);
+        Assert.Equal(1, vault.ImportCsv(csv, string.Empty));
+        Assert.Equal(0, vault.ImportCsv(csv, string.Empty));
+
+        var item = Assert.Single(vault.GetItems());
+        Assert.True(item.HasTotp);
+        Assert.Equal("password", vault.GetPassword(item.Id, string.Empty));
+        Assert.DoesNotContain("password", File.ReadAllText(storage.VaultPath));
+        Assert.DoesNotContain("JBSWY3DPEHPK3PXP", File.ReadAllText(storage.VaultPath));
     }
 
     public void Dispose()

@@ -20,9 +20,14 @@ public sealed class VaultBackupServiceTests
         var restored = service.ReadBackup(json, BackupPassphrase);
 
         Assert.DoesNotContain("account-password", json);
+        Assert.DoesNotContain("JBSWY3DPEHPK3PXP", json);
         Assert.DoesNotContain("abcd-1234", json);
         Assert.Equal(2, restored.Count);
         Assert.Equal("account-password", restored[0].Password);
+        Assert.Equal("JBSWY3DPEHPK3PXP", restored[0].TotpSecretBase32);
+        Assert.True(restored[0].IsFavorite);
+        Assert.Equal("Personal", restored[0].Folder);
+        Assert.Equal(["email", "important"], restored[0].Tags);
         Assert.Equal(VaultItemType.RecoveryCodes, restored[1].Type);
         Assert.Equal(["abcd-1234", "efgh-5678"], restored[1].RecoveryCodes);
     }
@@ -84,7 +89,11 @@ public sealed class VaultBackupServiceTests
             {
                 Title = "Account",
                 Username = "person@example.com",
-                Password = "account-password"
+                Password = "account-password",
+                TotpSecretBase32 = "JBSWY3DPEHPK3PXP",
+                IsFavorite = true,
+                Folder = "Personal",
+                Tags = ["email", "important"]
             },
             new VaultItem
             {
@@ -105,11 +114,15 @@ public sealed class VaultBackupServiceTests
             Title = item.Title,
             Username = item.Username,
             Password = item.Password,
+            TotpSecretBase32 = item.TotpSecretBase32,
             RecoveryCodes = [.. item.RecoveryCodes],
             Url = item.Url,
             HideUrl = item.HideUrl,
             Notes = item.Notes,
             HideNotes = item.HideNotes,
+            IsFavorite = item.IsFavorite,
+            Folder = item.Folder,
+            Tags = [.. item.Tags],
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
         };

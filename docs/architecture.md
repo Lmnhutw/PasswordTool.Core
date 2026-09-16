@@ -2,7 +2,7 @@
 
 ## Purpose and boundaries
 
-PasswordTool is a local Windows password vault plus a password-hash utility. It deliberately has no account system, database, cloud sync, or vault API.
+PasswordTool is a local Windows vault for passwords, website TOTP secrets, and recovery codes, plus a password-hash utility. It deliberately has no account system, database, cloud sync, telemetry, or vault API.
 
 ```text
 PasswordTool.WinForms ─┐
@@ -44,10 +44,15 @@ Hidden/System file attributes are only obfuscation. Treat an incomplete `.config
 ## Vault and backup invariants
 
 - An item has type `Password` or `RecoveryCodes`, never both secret forms.
+- A password item may contain one normalized Base32 website TOTP secret. A recovery-code item may not contain password or TOTP data.
+- Favorites, folders, and tags live inside the encrypted vault and backup payloads. List clones expose only whether a TOTP secret exists, never the secret itself.
 - `Title` is required. Core validates item shape before add/update/export/import.
 - TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when a TOTP secret exists.
+- A successful application-TOTP check authorizes sensitive actions for five minutes. The authorization is in-memory only and is cleared with the vault session.
 - Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
 - Import is validate-then-commit: enforce 10 MB, JSON depth 32, exact format/KDF/version, authenticated decryption, item limits, and unique IDs; show new/duplicate/conflict items; add new IDs only; rollback in-memory additions when save fails.
+- Plaintext CSV import is bounded to 10 MB, 10,000 rows, 64 columns, and bounded fields. It recognizes common browser/manager headers, skips non-login or passwordless rows, previews content, and adds only accounts that do not already match title, username, URL, and password.
+- Password and passphrase generation uses `RandomNumberGenerator`; no generated secret is logged or persisted until the user saves the item.
 
 ## Password hashing
 
@@ -64,6 +69,8 @@ Use random salts per secure hash and constant-time comparison for verification. 
 - Never persist, return, or log raw passwords, Master Passwords, recovery codes, TOTP secrets, or unprotected encryption keys.
 - Treat all file imports, API inputs, clipboard data, and persisted JSON as untrusted.
 - Keep raw secrets out of exceptions, telemetry, diagnostics, and UI list rows.
+- Keep the PasswordTool application authenticator secret separate from optional website TOTP secrets stored in entries.
+- Clipboard clearing is best-effort risk reduction only. Clear after 30 seconds only when the clipboard still contains the exact value PasswordTool copied.
 - Use authenticated encryption and fresh nonces through `EncryptionService`; do not introduce ad-hoc crypto.
 - Zero sensitive key buffers where practical and clear vault sessions when closing or on unlock failure.
 - Do not represent file hiding, clipboard blocking, or TOTP as protection from malware or a compromised unlocked Windows session.

@@ -12,6 +12,7 @@ public sealed class VaultService : IDisposable
     private readonly TotpService totpService;
     private readonly TrustedUnlockTokenService trustedUnlockTokenService;
     private readonly VaultBackupService backupService;
+    private readonly VaultCsvImportService csvImportService;
     private readonly VaultStorageService storageService;
     private readonly Func<DateTimeOffset> utcNow;
 
@@ -19,6 +20,7 @@ public sealed class VaultService : IDisposable
     private string? totpSecretBase32;
     private VaultData? vaultData;
     private bool isVaultOpen;
+    private DateTimeOffset? sensitiveSessionExpiresAt;
     private bool disposed;
 
     public VaultService()
@@ -31,13 +33,15 @@ public sealed class VaultService : IDisposable
         EncryptionService encryptionService,
         TotpService totpService,
         TrustedUnlockTokenService? trustedUnlockTokenService = null,
-        Func<DateTimeOffset>? utcNow = null)
+        Func<DateTimeOffset>? utcNow = null,
+        VaultCsvImportService? csvImportService = null)
     {
         this.storageService = storageService;
         this.encryptionService = encryptionService;
         this.totpService = totpService;
         this.trustedUnlockTokenService = trustedUnlockTokenService ?? new TrustedUnlockTokenService();
         backupService = new VaultBackupService(encryptionService);
+        this.csvImportService = csvImportService ?? new VaultCsvImportService(totpService);
         this.utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         masterPasswordService = new MasterPasswordService(encryptionService);
     }
@@ -53,6 +57,10 @@ public sealed class VaultService : IDisposable
     public string VaultPath => storageService.VaultPath;
 
     public string TrustedUnlockTokenPath => storageService.TrustedUnlockTokenPath;
+
+    public bool IsSensitiveSessionActive => sensitiveSessionExpiresAt is { } expiresAt && expiresAt > utcNow();
+
+    public DateTimeOffset? SensitiveSessionExpiresAt => IsSensitiveSessionActive ? sensitiveSessionExpiresAt : null;
 
     public bool IsGoogleAuthenticatorConfigured
     {
@@ -292,7 +300,24 @@ public sealed class VaultService : IDisposable
             return true;
         }
 
-        return totpService.VerifyCode(totpSecretBase32!, code);
+        if (IsSensitiveSessionActive)
+        {
+            return true;
+        }
+
+        if (!totpService.VerifyCode(totpSecretBase32, code))
+        {
+            return false;
+        }
+
+        sensitiveSessionExpiresAt = utcNow().AddMinutes(5);
+        return true;
+    }
+
+    public void ClearSensitiveSession()
+    {
+        ThrowIfDisposed();
+        sensitiveSessionExpiresAt = null;
     }
 
     public bool TrySetLoginMode(string masterPassword, VaultLoginMode loginMode, out string errorMessage)
@@ -396,6 +421,20 @@ public sealed class VaultService : IDisposable
         return item.RecoveryCodes.ToList();
     }
 
+    public TotpCodeResult GetWebsiteTotpCode(Guid id, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+        var item = FindItem(id);
+        if (item.Type != VaultItemType.Password || string.IsNullOrWhiteSpace(item.TotpSecretBase32))
+        {
+            throw new InvalidOperationException("This vault item does not contain a website TOTP secret.");
+        }
+
+        return totpService.GetCurrentCode(item.TotpSecretBase32, utcNow());
+    }
+
     public string ExportBackupJson(string passphrase, string totpCode)
     {
         ThrowIfDisposed();
@@ -454,13 +493,58 @@ public sealed class VaultService : IDisposable
         }
     }
 
+    public VaultCsvImportPlan PreviewCsvImport(string csv, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+        var importedItems = csvImportService.Parse(csv);
+        return csvImportService.CreateImportPlan(importedItems, vaultData!.Items);
+    }
+
+    public int ImportCsv(string csv, string totpCode)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        RequireSensitiveTotp(totpCode);
+        var importedItems = csvImportService.Parse(csv);
+        var newItems = csvImportService.SelectNewItems(importedItems, vaultData!.Items)
+            .Select(item => Clone(item, includePassword: true))
+            .ToList();
+        if (newItems.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = utcNow();
+        foreach (var item in newItems)
+        {
+            item.Id = Guid.NewGuid();
+            item.CreatedAt = now;
+            item.UpdatedAt = now;
+            ValidateVaultItem(item);
+        }
+
+        vaultData.Items.AddRange(newItems);
+        try
+        {
+            SaveVault();
+            return newItems.Count;
+        }
+        catch
+        {
+            foreach (var item in newItems) vaultData.Items.Remove(item);
+            throw;
+        }
+    }
+
     public VaultItem AddItem(VaultItem item)
     {
         ThrowIfDisposed();
         EnsureOpen();
         ValidateVaultItem(item);
 
-        var now = DateTimeOffset.UtcNow;
+        var now = utcNow();
         var newItem = Clone(item, includePassword: true);
         newItem.Id = Guid.NewGuid();
         newItem.CreatedAt = now;
@@ -482,12 +566,16 @@ public sealed class VaultService : IDisposable
         existing.Type = item.Type;
         existing.Username = item.Username.Trim();
         existing.Password = item.Type == VaultItemType.Password ? item.Password : string.Empty;
+        existing.TotpSecretBase32 = item.Type == VaultItemType.Password ? item.TotpSecretBase32 : string.Empty;
         existing.RecoveryCodes = item.Type == VaultItemType.RecoveryCodes ? [.. item.RecoveryCodes] : [];
         existing.Url = item.Url.Trim();
         existing.HideUrl = item.HideUrl;
         existing.Notes = item.Notes;
         existing.HideNotes = item.HideNotes;
-        existing.UpdatedAt = DateTimeOffset.UtcNow;
+        existing.IsFavorite = item.IsFavorite;
+        existing.Folder = item.Folder.Trim();
+        existing.Tags = [.. item.Tags];
+        existing.UpdatedAt = utcNow();
 
         SaveVault();
     }
@@ -513,6 +601,7 @@ public sealed class VaultService : IDisposable
         totpSecretBase32 = null;
         vaultData = null;
         isVaultOpen = false;
+        sensitiveSessionExpiresAt = null;
     }
 
     public void Dispose()
@@ -625,7 +714,7 @@ public sealed class VaultService : IDisposable
         ObjectDisposedException.ThrowIf(disposed, this);
     }
 
-    private static void ValidateVaultItem(VaultItem item)
+    private void ValidateVaultItem(VaultItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
 
@@ -640,6 +729,13 @@ public sealed class VaultService : IDisposable
         }
 
         item.RecoveryCodes ??= [];
+        item.Tags ??= [];
+        item.Tags = item.Tags
+            .Select(tag => tag.Trim())
+            .Where(tag => tag.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        item.Folder = item.Folder?.Trim() ?? string.Empty;
         if (item.Type == VaultItemType.Password && string.IsNullOrWhiteSpace(item.Password))
         {
             throw new ArgumentException("Password is required.", nameof(item));
@@ -650,8 +746,19 @@ public sealed class VaultService : IDisposable
             throw new ArgumentException("A password item cannot contain recovery codes.", nameof(item));
         }
 
+        if (item.Type == VaultItemType.Password && !string.IsNullOrWhiteSpace(item.TotpSecretBase32))
+        {
+            if (!totpService.TryNormalizeWebsiteSecret(item.TotpSecretBase32, out var normalizedSecret))
+            {
+                throw new ArgumentException("The website TOTP secret is invalid.", nameof(item));
+            }
+            item.TotpSecretBase32 = normalizedSecret;
+        }
+
         if (item.Type == VaultItemType.RecoveryCodes
-            && (!string.IsNullOrEmpty(item.Password) || item.RecoveryCodes.Count < 2))
+            && (!string.IsNullOrEmpty(item.Password)
+                || !string.IsNullOrEmpty(item.TotpSecretBase32)
+                || item.RecoveryCodes.Count < 2))
         {
             throw new ArgumentException("A recovery-code item requires at least two codes and cannot contain a password.", nameof(item));
         }
@@ -668,11 +775,15 @@ public sealed class VaultService : IDisposable
             Type = item.Type,
             Username = item.Username,
             Password = includePassword ? item.Password : string.Empty,
+            TotpSecretBase32 = includePassword ? item.TotpSecretBase32 : string.Empty,
             RecoveryCodes = includePassword ? [.. item.RecoveryCodes] : [],
             Url = item.Url,
             HideUrl = item.HideUrl,
             Notes = item.Notes,
             HideNotes = item.HideNotes,
+            IsFavorite = item.IsFavorite,
+            Folder = item.Folder,
+            Tags = [.. item.Tags],
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
         };
@@ -682,6 +793,7 @@ public sealed class VaultService : IDisposable
     {
         var clone = Clone(item, includePassword: false);
         clone.RecoveryCodeCount = item.RecoveryCodes.Count;
+        clone.HasTotp = !string.IsNullOrWhiteSpace(item.TotpSecretBase32);
         if (clone.HideUrl)
         {
             clone.Url = string.Empty;
@@ -700,6 +812,7 @@ public sealed class VaultService : IDisposable
         foreach (var item in items)
         {
             item.RecoveryCodes ??= [];
+            item.Tags ??= [];
         }
     }
 }

@@ -14,10 +14,15 @@ public sealed class VaultItem
 
     public string Password { get; set; } = string.Empty;
 
+    public string TotpSecretBase32 { get; set; } = string.Empty;
+
     public List<string> RecoveryCodes { get; set; } = [];
 
     [JsonIgnore]
     public int RecoveryCodeCount { get; set; }
+
+    [JsonIgnore]
+    public bool HasTotp { get; set; }
 
     public string Url { get; set; } = string.Empty;
 
@@ -26,6 +31,12 @@ public sealed class VaultItem
     public string Notes { get; set; } = string.Empty;
 
     public bool HideNotes { get; set; }
+
+    public bool IsFavorite { get; set; }
+
+    public string Folder { get; set; } = string.Empty;
+
+    public List<string> Tags { get; set; } = [];
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

@@ -1,6 +1,6 @@
 # PasswordTool
 
-> A local Windows password vault and password-hash utility. Vault data stays on the device; the application has no database, cloud sync, account system, or network dependency after NuGet packages are restored.
+> A local Windows vault for passwords, website TOTP codes, and recovery codes, plus a password-hash utility. Vault data stays on the device; the application has no database, cloud sync, account system, telemetry, or runtime network dependency.
 
 ## What is included
 
@@ -10,6 +10,10 @@
 | **Sign-in** | Uses a Master Password; Google Authenticator can be used for a limited, trusted-device sign-in path. |
 | **Protected actions** | Requires a current TOTP code to reveal secrets or export/import a backup. |
 | **Encrypted backup** | Exports a versioned JSON envelope encrypted with a separate backup passphrase. |
+| **Everyday organization** | Searches locally and organizes entries with favorites, folders, and tags. |
+| **Password generation** | Generates cryptographically random passwords and readable passphrases with strength feedback. |
+| **Website TOTP** | Stores an optional website TOTP secret inside an encrypted password entry and generates its current code. |
+| **Migration** | Reviews and imports common browser or password-manager CSV exports without overwriting matching accounts. |
 | **Hash utility** | Generates, verifies, and inspects password hashes, including clearly marked educational-only algorithms. |
 
 ## Quick start
@@ -66,14 +70,18 @@ Successful Master Password sign-in
 - **Google Authenticator** requires both a valid 6-digit TOTP code and an unexpired `.trusted-unlock` token on the *same Windows user profile*. It does not permanently replace the Master Password.
 - **Hybrid** is the default preference. The Settings screen can prefer Google Authenticator at the next unlock, but changing this setting requires the Master Password.
 - Older vaults without a TOTP secret remain Master-Password-only.
+- One successful PasswordTool Authenticator check opens sensitive actions for five minutes. Closing or explicitly locking the vault clears that session.
 
 ### Vault use and backups
 
 - Entries are either **Password** or **Recovery codes**. A recovery-code entry cannot also contain a password.
+- Password entries may also contain a website TOTP secret. This is separate from the PasswordTool Authenticator secret used to protect the vault.
+- Favorites, folders, tags, and local search help organize entries without a server or online account.
 - URL and Notes may be hidden in the list; the encrypted stored value is unchanged and can be accessed only through the protected edit workflow.
-- The app disables copy/cut shortcuts and copy buttons within its UI. This reduces accidental clipboard exposure, but cannot erase data that has already been pasted from or copied by another application.
+- General copy/cut shortcuts remain disabled. Explicit copy actions for usernames, passwords, and website TOTP codes clear an unchanged clipboard value after 30 seconds. Windows and other applications may read it first.
 - Export uses a separate backup passphrase of at least 12 characters. The encrypted envelope contains vault entries only: it excludes the Master Password configuration, TOTP secret, and trusted token.
 - Import validates the full backup before changing the vault, shows new/duplicate/conflicting IDs, and saves only new entries. Existing entries are never overwritten.
+- CSV import supports common headers from browsers and password managers, previews new and duplicate accounts, and adds only new accounts. CSV exports contain plaintext secrets; protect and securely remove them after import.
 
 ## Security model and limits
 
@@ -85,6 +93,7 @@ PasswordTool protects data at rest and provides a local second factor for sensit
 | Every new vault uses a random KDF salt; cryptographic key buffers are cleared when sessions end where the runtime permits. | Loss of the Master Password, authenticator secret, and usable backups: there is no recovery, reset, backdoor, or cloud copy. |
 | The trusted token is DPAPI-protected for the current Windows user and bound to the current vault configuration. | Another user/profile or device using that token; DPAPI protection is scoped to the local Windows user, not portable. |
 | TOTP gates secret reveal, editing, and backup export/import when configured. | A weak Master Password or an unlocked device left accessible to another person. |
+| Sensitive clipboard values are cleared after 30 seconds when unchanged. | Another process reading the clipboard, clipboard history, remote-control software, or malware. |
 
 Keep Windows patched, use a strong unique Master Password, lock the PC when away, protect the authenticator and backup passphrase separately, and keep encrypted backups in a location you control. Hidden/System file attributes are only concealment; encryption and Windows account security are the actual boundaries.
 

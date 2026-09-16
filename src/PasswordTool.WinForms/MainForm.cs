@@ -106,7 +106,10 @@ public partial class MainForm : Form
             secret,
             setupAuthenticatorForm.VerifiedCode);
 
-        OpenVaultForm();
+        if (OpenVaultForm())
+        {
+            RunExistingVaultFlow();
+        }
     }
 
     private void RunExistingVaultFlow()
@@ -130,7 +133,10 @@ public partial class MainForm : Form
                     continue;
                 }
 
-                OpenVaultForm();
+                if (OpenVaultForm())
+                {
+                    continue;
+                }
                 return;
             }
 
@@ -140,19 +146,29 @@ public partial class MainForm : Form
                 continue;
             }
 
-            OpenVaultForm();
+            if (OpenVaultForm())
+            {
+                continue;
+            }
             return;
         }
     }
 
-    private void OpenVaultForm()
+    private bool OpenVaultForm()
     {
         Hide();
 
         using var vaultForm = new VaultForm(vaultService);
         vaultForm.ShowDialog(this);
 
+        if (vaultForm.LockRequested && !IsDisposed)
+        {
+            Show();
+            return true;
+        }
+
         Close();
+        return false;
     }
 
     private static void ShowError(string message)
