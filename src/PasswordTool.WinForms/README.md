@@ -1,31 +1,19 @@
 # PasswordTool.WinForms
 
-Local WinForms UI for the encrypted PasswordTool vault.
+The local Windows interface for the encrypted vault and password-hash utility.
 
-This project contains forms only. Master Password handling, key derivation, encryption, vault storage, and TOTP verification live in `PasswordTool.Core`.
+## UI responsibilities
 
-Login flow:
+- First-launch Master Password and Google Authenticator QR-code setup
+- Master Password / trusted-token TOTP unlock choices and sign-in preference UI
+- Vault list, protected secret reveal/edit dialogs, recovery-code review, and backup file dialogs
+- Password-hash selection, generation, verification, and inspection
+- Clipboard shortcut blocking and normal keyboard navigation
 
-1. `UnlockVaultForm` lets the user choose `Master Password` or `Google Authenticator`.
-2. `Master Password` login calls `PasswordTool.Core` to derive the encryption key, open the vault, and create a 1-day trusted Google Authenticator token.
-3. `Google Authenticator` login is enabled only while that token is valid; Core verifies the current 6-digit code before `VaultForm` opens.
+## Boundary with Core
 
-The WinForms project must not store the Master Password, raw TOTP secret, or encryption key.
+This project owns forms and interaction only. Master Password processing, key derivation, TOTP secret handling, encryption, storage, item validation, backup parsing, and import conflict logic must remain in `PasswordTool.Core`.
 
-Required forms:
+The UI must never store, log, or display an encryption key or raw TOTP secret. When it requests a password, recovery codes, backup export/import, or protected edit, it must obtain the current TOTP code through `VaultService` rather than duplicating verification logic.
 
-- `MainForm.cs`
-- `PasswordHashToolForm.cs`
-- `CreateMasterPasswordForm.cs`
-- `UnlockVaultForm.cs`
-- `SetupAuthenticatorForm.cs`
-- `VerifyTotpForm.cs`
-- `VaultForm.cs`
-- `VaultItemEditorForm.cs`
-- `RecoveryCodesReviewForm.cs`
-- `BackupPassphraseForm.cs`
-- `VaultImportReviewForm.cs`
-
-`VaultItemEditorForm` supports password and recovery-code items. Recovery-code input is read directly from the Windows clipboard only after the user clicks `Paste from Clipboard & Review`; parsed codes are shown for confirmation before they can be saved.
-
-`VaultForm` exposes encrypted JSON export/import. WinForms owns file pickers, passphrase prompts, TOTP prompts, and review dialogs, while parsing, encryption, validation, conflict classification, and atomic vault mutation remain in `PasswordTool.Core`.
+Clipboard copy/cut is disabled inside the application as a guard against accidental exposure. It is not a security boundary outside the app: pasted content is already controlled by the source application and operating system.

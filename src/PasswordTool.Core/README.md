@@ -1,20 +1,26 @@
 # PasswordTool.Core
 
-Reusable business and security layer for PasswordTool.
+The reusable domain and security layer for PasswordTool. UI and HTTP projects depend on this project; Core must never depend on WinForms or ASP.NET request/response types.
 
-The vault implementation in this project owns:
+## Responsibilities
 
-- Master Password validation and PBKDF2 key derivation
-- AES-GCM encryption/decryption
-- Encrypted local vault storage under `%LocalAppData%\PasswordTool`
-- Google Authenticator-compatible 6-digit TOTP secret generation and verification with `Otp.NET`
-- 1-day trusted unlock tokens protected with Windows DPAPI for Google Authenticator login
-- Vault item models and CRUD services
-- Typed password and recovery-code vault items
-- Passphrase-protected, versioned JSON backup export/import with conflict detection
+- Master Password validation and PBKDF2-HMAC-SHA256 vault-key derivation
+- AES-256-GCM encryption/decryption and encrypted local-vault persistence
+- TOTP generation/verification and Windows-DPAPI trusted-unlock tokens
+- Vault item validation, CRUD, recovery-code parsing, and sensitive-action verification
+- Encrypted, versioned backup export/import with input limits and conflict classification
+- Password hash implementations, inspection, registry metadata, and constant-time comparisons
 
-For newly created vaults, `.config` stores non-secret KDF metadata plus the encrypted TOTP secret. The TOTP secret is encrypted with the Master Password-derived key and is only available after the Master Password succeeds. After a successful Master Password login, Core can write `.trusted-unlock`, a 1-day token that stores the vault encryption key protected by Windows DPAPI for the current Windows user. Google Authenticator login requires both a valid TOTP code and that unexpired local token.
+## Storage and sign-in contract
 
-The local storage files use non-obvious names, `.config`, `.storage`, and `.trusted-unlock`, and are marked Hidden/System on Windows where possible. Those attributes are only obfuscation; security depends on encryption, DPAPI protection, and the Master Password-derived encryption key.
+For a new vault, `.config` contains KDF metadata and an AES-GCM-encrypted TOTP secret; `.storage` contains the encrypted vault. A successful Master Password unlock can create `.trusted-unlock`: a one-day Windows-DPAPI-CurrentUser protection of the vault key, bound to a configuration fingerprint. A TOTP code plus that token may unlock the vault only for the same Windows user profile.
 
-JSON backups contain only vault items. `VaultBackupService` derives a separate 256-bit key from the backup passphrase with PBKDF2-HMAC-SHA256 and encrypts the payload with AES-256-GCM. Import accepts only the supported format/version, enforces item and field limits, rejects mixed password/recovery-code fields, and identifies duplicate or conflicting IDs before `VaultService` adds new items in one save operation.
+File names and Hidden/System attributes are obfuscation only. The security boundary is the Master Password-derived key, authenticated encryption, DPAPI scope, and the Windows user account.
+
+## Change rules
+
+- Do not persist or log raw passwords, recovery codes, Master Passwords, TOTP secrets, or unprotected vault keys.
+- Preserve the password-versus-recovery-code invariant on every add, update, import, and export.
+- Treat backups as untrusted input: retain schema, size, depth, field-length, version, KDF, and authentication checks before mutating the vault.
+- Keep UI and API layers thin. They may choose dialogs, HTTP status codes, and DTOs, but Core owns cryptography and domain validation.
+- Maintain backward compatibility for vault items that predate recovery codes: their missing `Type` defaults to `Password`.

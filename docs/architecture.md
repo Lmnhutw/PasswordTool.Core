@@ -1,182 +1,70 @@
-# Architecture
+# Architecture and implementation rules
 
-## Goal
+## Purpose and boundaries
 
-Build a local encrypted password vault and password hashing tool where security and business logic are separated from UI and API layers.
-
-## Dependency Direction
+PasswordTool is a local Windows password vault plus a password-hash utility. It deliberately has no account system, database, cloud sync, or vault API.
 
 ```text
-PasswordTool.WinForms -> PasswordTool.Core
-PasswordTool.Api      -> PasswordTool.Core
-PasswordTool.Core.Tests -> PasswordTool.Core
+PasswordTool.WinForms ─┐
+                       ├──> PasswordTool.Core <── PasswordTool.Core.Tests
+PasswordTool.Api ──────┘
 ```
 
-`PasswordTool.Core` must not reference WinForms or ASP.NET Core UI/API concerns.
+`PasswordTool.Core` owns cryptography, validation, and domain workflows. WinForms owns user interaction. The API owns HTTP-specific DTOs and responses. Neither UI nor API may implement encryption, key derivation, TOTP verification, backup parsing, or password-hash algorithms.
 
-## Project Responsibilities
-
-### PasswordTool.Core
-
-Owns:
-
-- password hashing interfaces
-- algorithm option records
-- algorithm implementations
-- stored hash parsing and inspection
-- constant-time comparison helpers
-- algorithm metadata and registry
-- encrypted vault item invariants and CRUD workflows
-- recovery-code parsing and validation
-- encrypted JSON backup serialization, validation, and import conflict classification
-
-Does not own:
-
-- WinForms controls
-- HTTP request/response handling
-- logging raw passwords
-- storing plain-text passwords
-
-### PasswordTool.WinForms
-
-Owns:
-
-- password input UI
-- algorithm selector
-- hash output display
-- verify password workflow
-- copy hash action
-- show/hide password toggle
-- hash inspector/debug panel
-- warning labels for educational-only algorithms
-- clipboard-triggered recovery-code review UI
-- JSON backup file selection, passphrase prompts, and import review UI
-
-Does not own hashing logic. It should call `IPasswordHasherRegistry`, `IPasswordHasher`, and `IPasswordHashInspector` from `PasswordTool.Core`.
-
-WinForms also does not own vault-item validation, backup cryptography, backup schema parsing, or import conflict rules. It delegates those operations to `VaultService` and `VaultBackupService` through the Core boundary.
-
-## Vault Item Compatibility
-
-`VaultItem.Type` defaults to `Password`, so existing encrypted vault JSON that predates recovery-code support deserializes without migration or data loss. A password item may contain a password but no recovery-code list. A recovery-code item may contain recovery codes but no password. Core validates this invariant before add, update, export, or import.
-
-## JSON Backup Boundary
-
-The exported file is JSON, but vault items remain encrypted. The envelope contains a format/version marker, fixed PBKDF2-HMAC-SHA256 metadata, a random salt, and an AES-256-GCM encrypted payload. The payload excludes `.config`, the encrypted TOTP secret, and `.trusted-unlock`.
-
-Import follows a validate-then-commit workflow:
-
-1. Enforce the file-size and JSON-depth limits.
-2. Validate the exact backup format, version, KDF parameters, and salt size before key derivation.
-3. Authenticate and decrypt the AES-GCM payload.
-4. Validate every item, unique ID, field length, item type, and recovery-code list.
-5. Classify IDs as new, duplicate, or conflict for UI review.
-6. Add only new IDs and save the encrypted vault once; roll back the in-memory additions if persistence fails.
-
-### PasswordTool.Api
-
-Owns:
-
-- HTTP routes
-- request validation
-- response DTOs
-- API-specific error handling
-- authentication, rate limiting, and HTTPS policy when exposed beyond local development
-
-Does not own hashing logic. It should call `PasswordTool.Core`.
-
-## Core Interfaces
-
-```csharp
-public interface IPasswordHasher
-{
-    string AlgorithmName { get; }
-    string HashPassword(string password);
-    bool VerifyPassword(string password, string storedHash);
-}
-
-public interface IPasswordHashInspector
-{
-    PasswordHashInfo Inspect(string storedHash);
-}
-
-public interface IPasswordHasherRegistry
-{
-    IReadOnlyList<PasswordHasherDescriptor> GetAvailableHashers();
-    IPasswordHasher GetHasher(string algorithmName);
-}
-```
-
-## Models
-
-`PasswordHashInfo` describes parsed hash components:
-
-- algorithm name
-- version
-- salt
-- hash
-- iterations
-- work factor
-- memory cost
-- parallelism
-- whether the algorithm is secure for password storage
-- notes and warnings
-
-`PasswordHasherDescriptor` describes an available algorithm for UI/API selection.
-
-## Algorithm List
-
-Production-safe:
-
-- Argon2id
-- bcrypt
-- PBKDF2-HMAC-SHA256
-- PBKDF2-HMAC-SHA512
-- scrypt
-
-Framework format:
-
-- ASP.NET Core Identity PasswordHasher format
-
-Educational only:
-
-- MD5
-- SHA1
-- SHA256 without salt
-- SHA512 without salt
-- SHA256 with salt
-- SHA512 with salt
-
-Educational-only algorithms must never be defaults and must be clearly labeled as unsafe for real password storage.
-
-## Stored Hash Format
-
-Custom hashers should use readable PHC-style strings:
+## Vault lifecycle
 
 ```text
-$argon2id$v=1$m=65536,t=3,p=2$saltBase64$hashBase64
-$pbkdf2-sha256$v=1$i=600000$saltBase64$hashBase64
-$pbkdf2-sha512$v=1$i=600000$saltBase64$hashBase64
-$scrypt$v=1$n=16384,r=8,p=1$saltBase64$hashBase64
+First launch
+  Master Password + generated TOTP secret + confirmed 6-digit code
+    -> PBKDF2-HMAC-SHA256 (600,000 iterations, random 32-byte salt)
+    -> 256-bit key
+    -> encrypt config secret and empty vault with AES-256-GCM
+    -> optionally create a one-day DPAPI-CurrentUser trusted token
+
+Master Password unlock
+  derive key -> authenticate/decrypt config and vault -> refresh trusted token
+
+Authenticator unlock
+  unexpired same-user DPAPI token -> recover vault key -> verify TOTP -> decrypt vault
 ```
 
-bcrypt and ASP.NET Core Identity should preserve their native stored hash formats.
+A Master Password is always the recovery path for an unexpired-token failure. There is no recovery/reset/backdoor if the Master Password, authenticator secret, and usable encrypted backup are lost.
 
-## Implementation Order
+## Persisted data
 
-1. Implement PBKDF2-HMAC-SHA256 first using built-in .NET APIs.
-2. Add `PasswordHashInspector` parsing for PBKDF2.
-3. Build the WinForms controls around the core interfaces.
-4. Add bcrypt, Argon2id, and scrypt using vetted libraries.
-5. Add educational-only hashers with clear warnings.
-6. Add API endpoint implementations only after core behavior is tested.
+| File | Purpose | Protection |
+| --- | --- | --- |
+| `%LocalAppData%\PasswordTool\.config` | KDF metadata, login preference, encrypted TOTP secret | TOTP secret is AES-256-GCM encrypted with the derived vault key. |
+| `%LocalAppData%\PasswordTool\.storage` | Vault items | Entire JSON payload is AES-256-GCM encrypted. |
+| `%LocalAppData%\PasswordTool\.trusted-unlock` | Optional one-day trusted-device token | Vault key protected with Windows DPAPI for CurrentUser and tied to a config fingerprint. |
 
-## Security Rules
+Hidden/System file attributes are only obfuscation. Treat an incomplete `.config`/`.storage` pair as an error; never silently recreate or overwrite it.
 
-- Never store plain-text passwords.
-- Never log raw passwords.
-- Never return raw passwords in API responses.
-- Use a random salt for every secure password hash.
-- Use constant-time comparison for verification.
-- Do not select MD5, SHA1, SHA256, or SHA512 as production password storage algorithms.
-- Treat a public password hashing API as sensitive infrastructure requiring HTTPS, authentication, rate limiting, and abuse protection.
+## Vault and backup invariants
+
+- An item has type `Password` or `RecoveryCodes`, never both secret forms.
+- `Title` is required. Core validates item shape before add/update/export/import.
+- TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when a TOTP secret exists.
+- Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
+- Import is validate-then-commit: enforce 10 MB, JSON depth 32, exact format/KDF/version, authenticated decryption, item limits, and unique IDs; show new/duplicate/conflict items; add new IDs only; rollback in-memory additions when save fails.
+
+## Password hashing
+
+Core exposes the hasher registry, implementations, verifier, and inspector. Argon2id is the default recommendation. bcrypt, PBKDF2-SHA256, PBKDF2-SHA512, scrypt, and ASP.NET Core Identity formats are supported. MD5, SHA-1, and fast SHA variants are educational-only and must never be defaults or be presented as safe password storage.
+
+Use random salts per secure hash and constant-time comparison for verification. Preserve native bcrypt and ASP.NET Core Identity formats; custom secure formats are PHC-style strings.
+
+## API status and deployment rule
+
+`PasswordTool.Api` currently implements `/hash`, `/verify`, `/inspect`, and `/algorithms` below `/api/password`. It does not expose vault operations. HTTPS redirection is configured, but authentication, authorization, rate limiting, request-size limits, audit policy, and an educational-algorithm block are not yet implemented. It must remain local/trusted-development-only until those controls are explicitly added.
+
+## Security rules for future changes
+
+- Never persist, return, or log raw passwords, Master Passwords, recovery codes, TOTP secrets, or unprotected encryption keys.
+- Treat all file imports, API inputs, clipboard data, and persisted JSON as untrusted.
+- Keep raw secrets out of exceptions, telemetry, diagnostics, and UI list rows.
+- Use authenticated encryption and fresh nonces through `EncryptionService`; do not introduce ad-hoc crypto.
+- Zero sensitive key buffers where practical and clear vault sessions when closing or on unlock failure.
+- Do not represent file hiding, clipboard blocking, or TOTP as protection from malware or a compromised unlocked Windows session.
+- Add tests whenever a cryptographic contract, persisted schema, or validation rule changes.
