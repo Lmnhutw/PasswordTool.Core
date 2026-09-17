@@ -63,6 +63,54 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
     }
 
     [Fact]
+    public void Kdf_upgrade_preserves_security_timers_and_backup_health_metadata()
+    {
+        var now = new DateTimeOffset(2026, 9, 17, 12, 0, 0, TimeSpan.Zero);
+        var lastBackup = now.AddDays(-2);
+        var lastVerified = now.AddDays(-1);
+        var storage = new VaultStorageService(tempDirectory);
+        var encryption = new EncryptionService();
+        var masterPasswords = new MasterPasswordService(encryption);
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        const string password = "correct horse battery staple";
+        var legacy = new AppConfig
+        {
+            Version = 1,
+            KdfAlgorithm = MasterPasswordService.Pbkdf2Algorithm,
+            KdfIterations = MasterPasswordService.DefaultPbkdf2Iterations,
+            KeySizeBytes = MasterPasswordService.DefaultKeySizeBytes,
+            SaltBase64 = Convert.ToBase64String(RandomNumberGenerator.GetBytes(MasterPasswordService.SaltSizeBytes)),
+            InactivityLockTimeoutMinutes = 25,
+            SensitiveActionTimeoutMinutes = 3,
+            LastExternalBackupAt = lastBackup,
+            LastVerifiedBackupAt = lastVerified
+        };
+        var key = masterPasswords.DeriveKey(password, legacy);
+        try
+        {
+            legacy.EncryptedTotpSecret = encryption.EncryptString(secret, key);
+            storage.SaveState(legacy, encryption.EncryptObject(new VaultData(), key));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(key);
+        }
+
+        using var vault = new VaultService(storage, encryption, totp, utcNow: () => now);
+        Assert.True(vault.TryUnlockMasterPassword(password, out var unlockError), unlockError);
+        Assert.True(vault.NeedsKdfUpgrade);
+        Assert.True(vault.TryUpgradeKdf(password, out var upgradeError), upgradeError);
+
+        var upgraded = storage.LoadConfig();
+        Assert.Equal(MasterPasswordService.Argon2idAlgorithm, upgraded.KdfAlgorithm);
+        Assert.Equal(25, upgraded.InactivityLockTimeoutMinutes);
+        Assert.Equal(3, upgraded.SensitiveActionTimeoutMinutes);
+        Assert.Equal(lastBackup, upgraded.LastExternalBackupAt);
+        Assert.Equal(lastVerified, upgraded.LastVerifiedBackupAt);
+    }
+
+    [Fact]
     public void Password_history_trash_and_local_security_check_work_without_exposing_secrets()
     {
         var now = new DateTimeOffset(2026, 9, 16, 0, 0, 0, TimeSpan.Zero);

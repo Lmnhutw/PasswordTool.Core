@@ -20,6 +20,10 @@ public sealed class AppConfig
 
     public VaultLoginMode LoginMode { get; set; } = VaultLoginMode.Hybrid;
 
+    public int InactivityLockTimeoutMinutes { get; set; } = VaultSecuritySettings.DefaultInactivityLockTimeoutMinutes;
+
+    public int SensitiveActionTimeoutMinutes { get; set; } = VaultSecuritySettings.DefaultSensitiveActionTimeoutMinutes;
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using Microsoft.Win32;
 using PasswordTool.Core.Models;
 using PasswordTool.Core.Services;
 
@@ -22,12 +23,15 @@ public sealed class VaultForm : Form
     private readonly Button historyButton = new() { Text = "History", Width = 82 };
     private readonly System.Windows.Forms.Timer sessionTimer = new() { Interval = 1_000 };
     private IReadOnlyList<VaultItem> allItems = [];
+    private TimeSpan inactivityLockTimeout;
+    private bool lifecycleEventsSubscribed;
 
     public bool LockRequested { get; private set; }
 
     public VaultForm(VaultService vaultService)
     {
         this.vaultService = vaultService;
+        RefreshSecurityTimeouts();
         BuildInterface();
         LoadItems();
         FormIconService.Apply(this);
@@ -35,8 +39,23 @@ public sealed class VaultForm : Form
         sessionTimer.Start();
     }
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        if (lifecycleEventsSubscribed) return;
+        SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
+        SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
+        lifecycleEventsSubscribed = true;
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
+        if (lifecycleEventsSubscribed)
+        {
+            SystemEvents.SessionSwitch -= SystemEvents_SessionSwitch;
+            SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
+            lifecycleEventsSubscribed = false;
+        }
         sessionTimer.Dispose();
         clipboardService.Dispose();
         vaultService.ClearSession();
@@ -286,7 +305,12 @@ public sealed class VaultForm : Form
     {
         using var settings = new VaultSettingsForm(vaultService);
         settings.ShowDialog(this);
-        if (settings.RequiresVaultLock) LockVault();
+        if (settings.RequiresVaultLock)
+        {
+            LockVault();
+            return;
+        }
+        RefreshSecurityTimeouts();
     }
 
     private void OpenBackupRecoveryCenter()
@@ -369,7 +393,48 @@ public sealed class VaultForm : Form
     private void SessionTimer_Tick(object? sender, EventArgs e)
     {
         UpdateSensitiveSessionLabel();
-        if (GetSystemIdleTime() >= TimeSpan.FromMinutes(10)) LockVault();
+        if (GetSystemIdleTime() >= inactivityLockTimeout) LockVault();
+    }
+
+    private void RefreshSecurityTimeouts()
+    {
+        inactivityLockTimeout = TimeSpan.FromMinutes(vaultService.SecuritySettings.InactivityLockTimeoutMinutes);
+    }
+
+    private void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason is SessionSwitchReason.SessionLock
+            or SessionSwitchReason.ConsoleDisconnect
+            or SessionSwitchReason.RemoteDisconnect)
+        {
+            RequestLifecycleLock();
+        }
+    }
+
+    private void SystemEvents_PowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode is PowerModes.Suspend or PowerModes.Resume)
+        {
+            RequestLifecycleLock();
+        }
+    }
+
+    private void RequestLifecycleLock()
+    {
+        if (IsDisposed || Disposing || LockRequested) return;
+        if (InvokeRequired)
+        {
+            try
+            {
+                BeginInvoke(new Action(RequestLifecycleLock));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            return;
+        }
+
+        LockVault();
     }
 
     private static TimeSpan GetSystemIdleTime()
@@ -388,6 +453,7 @@ public sealed class VaultForm : Form
 
     private void LockVault()
     {
+        if (LockRequested) return;
         LockRequested = true;
         Close();
     }

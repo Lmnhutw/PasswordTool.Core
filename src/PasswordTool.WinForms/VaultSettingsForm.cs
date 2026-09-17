@@ -9,6 +9,8 @@ public sealed class VaultSettingsForm : Form
     private readonly RadioButton hybridOption = new();
     private readonly RadioButton googleAuthenticatorOption = new();
     private readonly TextBox masterPasswordTextBox = new();
+    private readonly NumericUpDown inactivityTimeoutInput = new();
+    private readonly NumericUpDown sensitiveActionTimeoutInput = new();
     private readonly TotpService totpService = new();
 
     public bool RequiresVaultLock { get; private set; }
@@ -27,20 +29,22 @@ public sealed class VaultSettingsForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(720, 455);
+        ClientSize = new Size(720, 525);
         Padding = new Padding(16);
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 8 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 10 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 82));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 1));
 
         hybridOption.Text = "Hybrid login (default)";
         hybridOption.AutoSize = true;
@@ -55,15 +59,26 @@ public sealed class VaultSettingsForm : Form
         modePanel.Controls.Add(hybridOption);
         modePanel.Controls.Add(googleAuthenticatorOption);
 
+        var securitySettings = vaultService.SecuritySettings;
+        ConfigureTimeoutInput(
+            inactivityTimeoutInput,
+            VaultSecuritySettings.MaximumInactivityLockTimeoutMinutes,
+            securitySettings.InactivityLockTimeoutMinutes);
+        ConfigureTimeoutInput(
+            sensitiveActionTimeoutInput,
+            VaultSecuritySettings.MaximumSensitiveActionTimeoutMinutes,
+            securitySettings.SensitiveActionTimeoutMinutes);
+
         masterPasswordTextBox.Dock = DockStyle.Fill;
         masterPasswordTextBox.UseSystemPasswordChar = true;
         masterPasswordTextBox.ShortcutsEnabled = false;
 
         var helpLabel = new Label
         {
-            Text = googleAuthenticatorOption.Enabled
-                ? "Changing sign-in mode requires your Master Password. Google Authenticator sign-in needs its current 1-day trusted token; Master Password stays available if that token expires."
-                : "Google Authenticator code can be selected after a successful Master Password sign-in creates its 1-day trusted token.",
+            Text = "Saving sign-in or timeout settings requires your Master Password. PasswordTool always locks when Windows locks or suspends. " +
+                (googleAuthenticatorOption.Enabled
+                    ? "Google Authenticator sign-in uses the current 1-day trusted token."
+                    : "Google Authenticator sign-in becomes available after a Master Password sign-in creates its 1-day trusted token."),
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft
         };
@@ -89,13 +104,17 @@ public sealed class VaultSettingsForm : Form
         layout.Controls.Add(CreateLabel("Sign-in mode"), 0, 0);
         layout.Controls.Add(modePanel, 1, 0);
         layout.SetRowSpan(modePanel, 2);
-        layout.Controls.Add(CreateLabel("Master Password"), 0, 3);
-        layout.Controls.Add(masterPasswordTextBox, 1, 3);
-        layout.Controls.Add(helpLabel, 0, 4);
+        layout.Controls.Add(CreateLabel("Inactivity lock"), 0, 2);
+        layout.Controls.Add(CreateMinutesInput(inactivityTimeoutInput), 1, 2);
+        layout.Controls.Add(CreateLabel("Sensitive actions"), 0, 3);
+        layout.Controls.Add(CreateMinutesInput(sensitiveActionTimeoutInput), 1, 3);
+        layout.Controls.Add(CreateLabel("Master Password"), 0, 4);
+        layout.Controls.Add(masterPasswordTextBox, 1, 4);
+        layout.Controls.Add(helpLabel, 0, 5);
         layout.SetColumnSpan(helpLabel, 2);
-        layout.Controls.Add(securityActions, 0, 5);
+        layout.Controls.Add(securityActions, 0, 6);
         layout.SetColumnSpan(securityActions, 2);
-        layout.Controls.Add(buttonRow, 0, 7);
+        layout.Controls.Add(buttonRow, 0, 8);
         layout.SetColumnSpan(buttonRow, 2);
         Controls.Add(layout);
         AcceptButton = saveButton;
@@ -163,7 +182,14 @@ public sealed class VaultSettingsForm : Form
             return;
         }
 
-        if (!vaultService.TrySetLoginMode(masterPasswordTextBox.Text, selectedMode, out var errorMessage))
+        var securitySettings = new VaultSecuritySettings(
+            decimal.ToInt32(inactivityTimeoutInput.Value),
+            decimal.ToInt32(sensitiveActionTimeoutInput.Value));
+        if (!vaultService.TryUpdateSettings(
+            masterPasswordTextBox.Text,
+            selectedMode,
+            securitySettings,
+            out var errorMessage))
         {
             MessageBox.Show(errorMessage, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
             masterPasswordTextBox.SelectAll();
@@ -181,4 +207,26 @@ public sealed class VaultSettingsForm : Form
         Dock = DockStyle.Fill,
         TextAlign = ContentAlignment.MiddleLeft
     };
+
+    private static void ConfigureTimeoutInput(NumericUpDown input, int maximum, int value)
+    {
+        input.Minimum = VaultSecuritySettings.MinimumTimeoutMinutes;
+        input.Maximum = maximum;
+        input.Value = value;
+        input.Width = 90;
+        input.TextAlign = HorizontalAlignment.Right;
+    }
+
+    private static Control CreateMinutesInput(NumericUpDown input)
+    {
+        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
+        panel.Controls.Add(input);
+        panel.Controls.Add(new Label
+        {
+            Text = "minutes",
+            AutoSize = true,
+            Margin = new Padding(8, 7, 0, 0)
+        });
+        return panel;
+    }
 }

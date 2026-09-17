@@ -1,6 +1,6 @@
 # PasswordTool.WinForms
 
-The Windows client provides vault unlock, first-launch backup recovery, a Backup & Recovery Center, explicit secret actions, settings for Master Password and Authenticator rotation, paired snapshot restore, password history, Trash, and Local Security Check. It runs as a single instance and locks the vault after 10 minutes of system inactivity.
+The Windows client provides vault unlock, first-launch backup recovery, a Backup & Recovery Center, explicit secret actions, configurable security timers, settings for Master Password and Authenticator rotation, paired snapshot restore, password history, Trash, and Local Security Check. It runs as a single instance and clears the vault session on configured inactivity or Windows lifecycle boundaries.
 
 The local Windows interface for the encrypted vault and password-hash utility.
 
@@ -8,6 +8,7 @@ The local Windows interface for the encrypted vault and password-hash utility.
 
 - First-launch choice between an empty vault and encrypted-backup recovery, followed by new Master Password and Authenticator setup
 - Master Password / trusted-token TOTP unlock choices and sign-in preference UI
+- Bounded inactivity/sensitive-action timeout controls and Windows session/power lifecycle locking
 - Vault list, protected secret reveal/edit dialogs, recovery-code review, and consolidated external backup/verification/import dialogs
 - Local search, favorites/folders/tags, password generation, website TOTP copy, and CSV import review
 - Password-hash selection, generation, verification, and inspection
@@ -22,3 +23,5 @@ WinForms may select a backup file and display `VaultBackupInspection`, but it mu
 The UI must never store, log, or display an encryption key or raw TOTP secret. When it requests a password, recovery codes, backup export/import, or protected edit, it must obtain the current TOTP code through `VaultService` rather than duplicating verification logic.
 
 General copy/cut shortcuts remain disabled as a guard against accidental exposure. Explicit username, password, and website-TOTP copy actions clear the clipboard after 30 seconds only when it is unchanged. Clipboard clearing is not a security boundary: Windows, clipboard history, malware, or another process may read copied content first.
+
+The vault window subscribes to Windows lifecycle events only while open and unsubscribes when closed. Session lock, console/remote disconnect, suspend, and resume use the normal lock path so Core clears the key and decrypted vault before the unlock screen returns.

@@ -282,6 +282,109 @@ public sealed class VaultServiceTests : IDisposable
     }
 
     [Fact]
+    public void Security_timeouts_require_the_master_password_persist_and_control_sensitive_sessions()
+    {
+        var now = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
+        var storage = new VaultStorageService(tempDirectory);
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        var code = ComputeTotp(secret);
+        using var vault = new VaultService(storage, new EncryptionService(), totpService, utcNow: () => now);
+        vault.InitializeNewVault("correct horse battery staple", secret, code);
+
+        Assert.Equal(
+            new VaultSecuritySettings(10, 5),
+            vault.SecuritySettings);
+        Assert.False(vault.TryUpdateSettings(
+            "incorrect master password",
+            VaultLoginMode.Hybrid,
+            new VaultSecuritySettings(20, 2),
+            out var wrongPasswordError));
+        Assert.Contains("incorrect", wrongPasswordError, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
+
+        Assert.True(vault.VerifyTotpForSensitiveAction(code));
+        Assert.True(vault.IsSensitiveSessionActive);
+        Assert.True(vault.TryUpdateSettings(
+            "correct horse battery staple",
+            VaultLoginMode.Hybrid,
+            new VaultSecuritySettings(20, 2),
+            out var updateError), updateError);
+        Assert.False(vault.IsSensitiveSessionActive);
+        Assert.Equal(new VaultSecuritySettings(20, 2), vault.SecuritySettings);
+
+        Assert.True(vault.VerifyTotpForSensitiveAction(code));
+        now = now.AddMinutes(2).AddSeconds(1);
+        Assert.False(vault.IsSensitiveSessionActive);
+
+        var persisted = storage.LoadConfig();
+        Assert.Equal(20, persisted.InactivityLockTimeoutMinutes);
+        Assert.Equal(2, persisted.SensitiveActionTimeoutMinutes);
+        using (var reopened = new VaultService(storage, new EncryptionService(), totpService))
+        {
+            Assert.Equal(new VaultSecuritySettings(20, 2), reopened.SecuritySettings);
+        }
+
+        Assert.True(vault.TryChangeMasterPassword(
+            "correct horse battery staple",
+            "a different secure master password",
+            out var changePasswordError), changePasswordError);
+        Assert.Equal(new VaultSecuritySettings(20, 2), vault.SecuritySettings);
+    }
+
+    [Fact]
+    public void Security_timeouts_reject_values_outside_supported_ranges()
+    {
+        var storage = new VaultStorageService(tempDirectory);
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        var code = ComputeTotp(secret);
+        using var vault = new VaultService(storage, new EncryptionService(), totpService);
+        vault.InitializeNewVault("correct horse battery staple", secret, code);
+
+        Assert.False(vault.TryUpdateSettings(
+            "correct horse battery staple",
+            VaultLoginMode.Hybrid,
+            new VaultSecuritySettings(0, 5),
+            out var inactivityError));
+        Assert.Contains("inactivity", inactivityError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vault.TryUpdateSettings(
+            "correct horse battery staple",
+            VaultLoginMode.Hybrid,
+            new VaultSecuritySettings(10, 31),
+            out var sensitiveError));
+        Assert.Contains("sensitive-action", sensitiveError, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
+    }
+
+    [Fact]
+    public void Legacy_config_without_timeout_fields_uses_secure_defaults()
+    {
+        Directory.CreateDirectory(tempDirectory);
+        File.WriteAllText(
+            Path.Combine(tempDirectory, ".config"),
+            "{\"Version\":1,\"LoginMode\":0}");
+        var storage = new VaultStorageService(tempDirectory);
+        using var vault = new VaultService(storage, new EncryptionService(), new TotpService());
+
+        Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
+    }
+
+    [Fact]
+    public void Persisted_security_timeouts_are_validated_before_use()
+    {
+        Directory.CreateDirectory(tempDirectory);
+        File.WriteAllText(
+            Path.Combine(tempDirectory, ".config"),
+            "{\"InactivityLockTimeoutMinutes\":0,\"SensitiveActionTimeoutMinutes\":5}");
+        var storage = new VaultStorageService(tempDirectory);
+        using var vault = new VaultService(storage, new EncryptionService(), new TotpService());
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => vault.SecuritySettings);
+        Assert.Contains("inactivity", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Csv_import_previews_adds_and_then_skips_matching_accounts()
     {
         var storage = new VaultStorageService(tempDirectory);

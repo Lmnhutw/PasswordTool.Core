@@ -37,7 +37,7 @@ Legacy PBKDF2-HMAC-SHA256 vaults remain readable and are upgraded only after the
 
 | File | Purpose | Protection |
 | --- | --- | --- |
-| `%LocalAppData%\PasswordTool\.config` | KDF metadata, login preference, encrypted TOTP secret, nullable external-backup and verification timestamps | TOTP secret is AES-256-GCM encrypted with the derived vault key. No backup path or passphrase is stored. |
+| `%LocalAppData%\PasswordTool\.config` | KDF metadata, login preference, bounded security timeouts, encrypted TOTP secret, nullable external-backup and verification timestamps | TOTP secret is AES-256-GCM encrypted with the derived vault key. No backup path or passphrase is stored. |
 | `%LocalAppData%\PasswordTool\.storage` | Vault items | Entire JSON payload is AES-256-GCM encrypted. |
 | `%LocalAppData%\PasswordTool\.trusted-unlock` | Optional one-day trusted-device token | Vault key protected with Windows DPAPI for CurrentUser and tied to a config fingerprint. |
 | `%LocalAppData%\PasswordTool\.snapshots` | Up to five prior config/vault pairs | Config and vault remain in their normal encrypted-at-rest formats. |
@@ -52,7 +52,7 @@ Config and vault writes are one logical state transition: stage both, snapshot t
 - Favorites, folders, and tags live inside the encrypted vault and backup payloads. List clones expose only whether a TOTP secret exists, never the secret itself.
 - `Title` is required. Core validates item shape before add/update/export/import.
 - TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when a TOTP secret exists.
-- A successful application-TOTP check authorizes sensitive actions for five minutes. The authorization is in-memory only and is cleared with the vault session.
+- A successful application-TOTP check authorizes sensitive actions for the configured 1–30 minute window (five minutes by default). The authorization is in-memory only and is cleared with the vault session or whenever security settings change.
 - Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
 - Inspection authenticates and validates the complete backup but returns only format/version, creation time, and item/type/active/Trash counts. It never returns the decrypted payload or secret fields.
 - New-machine recovery is allowed only when neither `.config` nor `.storage` exists. Core validates the backup, new Master Password, and new Authenticator confirmation before atomically committing a fresh Argon2id config and recovered encrypted vault. It never imports the old config, vault key, trusted token, or application Authenticator secret.
@@ -63,7 +63,9 @@ Config and vault writes are one logical state transition: stage both, snapshot t
 - Password and passphrase generation uses `RandomNumberGenerator`; no generated secret is logged or persisted until the user saves the item.
 - Password changes keep at most 10 encrypted history entries. Soft-deleted items are excluded from normal queries and are purged after 30 days.
 - Local Security Check runs only against decrypted in-memory data and returns item metadata plus finding type, never a password value.
-- The desktop process enforces one instance and locks after 10 minutes of system inactivity.
+- The desktop process enforces one instance and locks after the configured 1–120 minute inactivity window (10 minutes by default).
+- WinForms subscribes only while the vault window is open to Windows session-switch and power-mode events. Session lock, console/remote disconnect, suspend, and resume close the vault window; its close path clears decrypted items, the vault key, the Authenticator secret, and sensitive-action authorization before showing the unlock flow again.
+- Security timeout and sign-in-mode changes are one Master-Password-authorized config update. Persisted timeout values are validated in Core before use; older configs inherit the secure defaults through version-tolerant property initialization.
 
 ## Password hashing
 

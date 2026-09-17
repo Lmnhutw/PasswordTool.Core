@@ -112,6 +112,21 @@ public sealed class VaultService : IDisposable
         }
     }
 
+    public VaultSecuritySettings SecuritySettings
+    {
+        get
+        {
+            ThrowIfDisposed();
+            var config = storageService.LoadConfig();
+            VaultSecuritySettings.Validate(
+                config.InactivityLockTimeoutMinutes,
+                config.SensitiveActionTimeoutMinutes);
+            return new VaultSecuritySettings(
+                config.InactivityLockTimeoutMinutes,
+                config.SensitiveActionTimeoutMinutes);
+        }
+    }
+
     public bool NeedsKdfUpgrade
     {
         get
@@ -424,7 +439,7 @@ public sealed class VaultService : IDisposable
             return false;
         }
 
-        sensitiveSessionExpiresAt = utcNow().AddMinutes(5);
+        sensitiveSessionExpiresAt = utcNow().AddMinutes(SecuritySettings.SensitiveActionTimeoutMinutes);
         return true;
     }
 
@@ -436,13 +451,35 @@ public sealed class VaultService : IDisposable
 
     public bool TrySetLoginMode(string masterPassword, VaultLoginMode loginMode, out string errorMessage)
     {
+        return TryUpdateSettings(masterPassword, loginMode, SecuritySettings, out errorMessage);
+    }
+
+    public bool TryUpdateSettings(
+        string masterPassword,
+        VaultLoginMode loginMode,
+        VaultSecuritySettings securitySettings,
+        out string errorMessage)
+    {
         ThrowIfDisposed();
         EnsureOpen();
         errorMessage = string.Empty;
+        ArgumentNullException.ThrowIfNull(securitySettings);
 
         if (!Enum.IsDefined(loginMode))
         {
             errorMessage = "The selected login mode is not supported.";
+            return false;
+        }
+
+        try
+        {
+            VaultSecuritySettings.Validate(
+                securitySettings.InactivityLockTimeoutMinutes,
+                securitySettings.SensitiveActionTimeoutMinutes);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            errorMessage = ex.Message;
             return false;
         }
 
@@ -457,8 +494,11 @@ public sealed class VaultService : IDisposable
             }
 
             config.LoginMode = loginMode;
+            config.InactivityLockTimeoutMinutes = securitySettings.InactivityLockTimeoutMinutes;
+            config.SensitiveActionTimeoutMinutes = securitySettings.SensitiveActionTimeoutMinutes;
             config.UpdatedAt = utcNow();
             storageService.SaveConfig(config);
+            ClearSensitiveSession();
             return true;
         }
         catch (Exception ex) when (ex is IOException
@@ -468,7 +508,7 @@ public sealed class VaultService : IDisposable
             or FormatException
             or System.Text.Json.JsonException)
         {
-            errorMessage = "The login setting could not be saved.";
+            errorMessage = "The security settings could not be saved.";
             return false;
         }
         finally
@@ -501,6 +541,10 @@ public sealed class VaultService : IDisposable
             newConfig.CreatedAt = oldConfig.CreatedAt;
             newConfig.UpdatedAt = utcNow();
             newConfig.LoginMode = oldConfig.LoginMode;
+            newConfig.InactivityLockTimeoutMinutes = oldConfig.InactivityLockTimeoutMinutes;
+            newConfig.SensitiveActionTimeoutMinutes = oldConfig.SensitiveActionTimeoutMinutes;
+            newConfig.LastExternalBackupAt = oldConfig.LastExternalBackupAt;
+            newConfig.LastVerifiedBackupAt = oldConfig.LastVerifiedBackupAt;
             newKey = masterPasswordService.DeriveKey(newMasterPassword, newConfig);
             var payload = encryptionService.EncryptObject(vaultData, newKey);
             storageService.SaveState(newConfig, payload);

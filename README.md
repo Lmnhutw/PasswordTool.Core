@@ -72,8 +72,8 @@ Successful Master Password sign-in
 - **Hybrid** is the default preference. The Settings screen can prefer Google Authenticator at the next unlock, but changing this setting requires the Master Password.
 - Older vaults without a TOTP secret remain Master-Password-only.
 - Existing PBKDF2 vaults remain readable and can be upgraded in Settings; new vaults use Argon2id.
-- One successful PasswordTool Authenticator check opens sensitive actions for five minutes. Closing or explicitly locking the vault clears that session.
-- The vault locks after 10 minutes of system inactivity, and only one desktop instance runs per Windows session.
+- One successful PasswordTool Authenticator check opens a short sensitive-action session. Settings can choose 1–30 minutes; the default is five. Saving timeout changes clears any active sensitive-action session.
+- The vault locks after a configurable 1–120 minutes of system inactivity (10 minutes by default), when the Windows session locks or disconnects, and when Windows suspends or resumes. Only one desktop instance runs per Windows session.
 
 ### Vault use and backups
 
@@ -116,7 +116,7 @@ The desktop app stores its files in:
 
 | File | Contents |
 | --- | --- |
-| `.config` | KDF metadata, login preference, encrypted TOTP secret, and nullable backup-health timestamps. |
+| `.config` | KDF metadata, login preference, validated security timeouts, encrypted TOTP secret, and nullable backup-health timestamps. |
 | `.storage` | AES-256-GCM encrypted vault payload. |
 | `.trusted-unlock` | Optional, one-day DPAPI-protected vault key for the current Windows user. |
 | `.snapshots` | Up to five previous paired config/vault states, retaining the same encrypted-at-rest representation. |
