@@ -9,11 +9,12 @@
 | **Encrypted vault** | Stores password or recovery-code entries in an AES-256-GCM encrypted local vault. |
 | **Sign-in** | Uses a Master Password; Google Authenticator can be used for a limited, trusted-device sign-in path. |
 | **Protected actions** | Requires a current TOTP code to reveal secrets or export/import a backup. |
-| **Encrypted backup** | Exports a versioned JSON envelope encrypted with a separate backup passphrase. |
+| **Backup & recovery** | Creates and verifies encrypted external backups and can recover a vault on a new Windows installation. |
 | **Everyday organization** | Searches locally and organizes entries with favorites, folders, and tags. |
 | **Password generation** | Generates cryptographically random passwords and readable passphrases with strength feedback. |
 | **Website TOTP** | Stores an optional website TOTP secret inside an encrypted password entry and generates its current code. |
 | **Migration** | Reviews and imports common browser or password-manager CSV exports without overwriting matching accounts. |
+| **Safety lifecycle** | Keeps password history, a 30-day Trash, paired encrypted snapshots, inactivity lock, and a local weak/reused/old-password check. |
 | **Hash utility** | Generates, verifies, and inspects password hashes, including clearly marked educational-only algorithms. |
 
 ## Quick start
@@ -41,7 +42,7 @@ dotnet restore PasswordTool.slnx
 dotnet run --project src\PasswordTool.WinForms\PasswordTool.WinForms.csproj
 ```
 
-On the first launch, choose a Master Password (at least 12 characters), scan the QR code in Google Authenticator or another compatible TOTP app, and confirm a 6-digit code. Only then does PasswordTool create the empty vault.
+On first launch, create an empty vault or recover one from an encrypted PasswordTool backup. Both paths create a new Master Password (at least 12 characters) and a new PasswordTool Authenticator for this installation. Recovery first authenticates the backup with its separate backup passphrase; cancelling leaves storage uninitialized.
 
 ### Verify the solution
 
@@ -54,7 +55,7 @@ dotnet build PasswordTool.slnx
 
 ```text
 Master Password
-  └─ PBKDF2-HMAC-SHA256 (600,000 iterations + random 32-byte salt)
+  └─ Argon2id (3 passes, 64 MiB, parallelism 2 + random 32-byte salt)
        └─ 256-bit vault key
             ├─ AES-256-GCM encrypts vault items in .storage
             └─ AES-256-GCM encrypts the TOTP secret in .config
@@ -70,7 +71,9 @@ Successful Master Password sign-in
 - **Google Authenticator** requires both a valid 6-digit TOTP code and an unexpired `.trusted-unlock` token on the *same Windows user profile*. It does not permanently replace the Master Password.
 - **Hybrid** is the default preference. The Settings screen can prefer Google Authenticator at the next unlock, but changing this setting requires the Master Password.
 - Older vaults without a TOTP secret remain Master-Password-only.
+- Existing PBKDF2 vaults remain readable and can be upgraded in Settings; new vaults use Argon2id.
 - One successful PasswordTool Authenticator check opens sensitive actions for five minutes. Closing or explicitly locking the vault clears that session.
+- The vault locks after 10 minutes of system inactivity, and only one desktop instance runs per Windows session.
 
 ### Vault use and backups
 
@@ -80,8 +83,14 @@ Successful Master Password sign-in
 - URL and Notes may be hidden in the list; the encrypted stored value is unchanged and can be accessed only through the protected edit workflow.
 - General copy/cut shortcuts remain disabled. Explicit copy actions for usernames, passwords, and website TOTP codes clear an unchanged clipboard value after 30 seconds. Windows and other applications may read it first.
 - Export uses a separate backup passphrase of at least 12 characters. The encrypted envelope contains vault entries only: it excludes the Master Password configuration, TOTP secret, and trusted token.
+- The **Backup & Recovery Center** records the last successful external backup and authenticated verification time and warns when no external backup is recorded or the latest is older than 30 days.
+- On a new PC, choose **Recover from encrypted backup**, enter the backup passphrase, review safe item counts, then create a new Master Password and Authenticator. Recovery preserves supported item data but deliberately creates a fresh Argon2id salt, trusted token, and application Authenticator secret.
 - Import validates the full backup before changing the vault, shows new/duplicate/conflicting IDs, and saves only new entries. Existing entries are never overwritten.
 - CSV import supports common headers from browsers and password managers, previews new and duplicate accounts, and adds only new accounts. CSV exports contain plaintext secrets; protect and securely remove them after import.
+- Changing a password keeps its latest 10 previous values inside the encrypted vault. Deleted items remain in Trash for 30 days unless restored or permanently deleted.
+- Local Security Check reports weak, reused, and passwords unchanged for over one year. It performs no network request and does not expose password values in its result.
+- State changes preserve up to five paired `.config` + `.storage` snapshots. Restore always restores the pair and locks the vault so the restored credentials must unlock it again.
+- Internal snapshots remain on the same disk. They can undo local changes but are not an external backup and do not protect against disk loss.
 
 ## Security model and limits
 
@@ -107,9 +116,10 @@ The desktop app stores its files in:
 
 | File | Contents |
 | --- | --- |
-| `.config` | KDF metadata, login preference, and the encrypted TOTP secret. |
+| `.config` | KDF metadata, login preference, encrypted TOTP secret, and nullable backup-health timestamps. |
 | `.storage` | AES-256-GCM encrypted vault payload. |
 | `.trusted-unlock` | Optional, one-day DPAPI-protected vault key for the current Windows user. |
+| `.snapshots` | Up to five previous paired config/vault states, retaining the same encrypted-at-rest representation. |
 
 Do not manually edit, mix, or partially restore these files. If only `.config` or `.storage` is present, the app stops rather than overwriting partial storage.
 

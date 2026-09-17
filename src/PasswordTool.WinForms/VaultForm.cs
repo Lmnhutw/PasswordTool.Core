@@ -19,6 +19,7 @@ public sealed class VaultForm : Form
     private readonly Button copyUsernameButton = new() { Text = "Copy User", Width = 92 };
     private readonly Button copyPasswordButton = new() { Text = "Copy Password", Width = 112 };
     private readonly Button copyTotpButton = new() { Text = "Copy TOTP", Width = 96 };
+    private readonly Button historyButton = new() { Text = "History", Width = 82 };
     private readonly System.Windows.Forms.Timer sessionTimer = new() { Interval = 1_000 };
     private IReadOnlyList<VaultItem> allItems = [];
 
@@ -30,7 +31,7 @@ public sealed class VaultForm : Form
         BuildInterface();
         LoadItems();
         FormIconService.Apply(this);
-        sessionTimer.Tick += (_, _) => UpdateSensitiveSessionLabel();
+        sessionTimer.Tick += SessionTimer_Tick;
         sessionTimer.Start();
     }
 
@@ -59,9 +60,10 @@ public sealed class VaultForm : Form
         var addButton = CreateToolbarButton("Add", 72, (_, _) => AddItem());
         var settingsButton = CreateToolbarButton("Settings", 88, (_, _) => OpenSettings());
         var importCsvButton = CreateToolbarButton("Import CSV", 96, (_, _) => ImportCsv());
-        var importBackupButton = CreateToolbarButton("Import Backup", 112, (_, _) => ImportBackup());
-        var exportBackupButton = CreateToolbarButton("Export Backup", 112, (_, _) => ExportBackup());
+        var backupCenterButton = CreateToolbarButton("Backup & Recovery", 142, (_, _) => OpenBackupRecoveryCenter());
         var hashToolButton = CreateToolbarButton("Hash Tool", 92, (_, _) => OpenHashTool());
+        var trashButton = CreateToolbarButton("Trash", 72, (_, _) => OpenTrash());
+        var securityButton = CreateToolbarButton("Security Check", 112, (_, _) => OpenSecurityCheck());
         var lockButton = CreateToolbarButton("Lock", 72, (_, _) => LockVault());
         editButton.Click += (_, _) => EditSelectedItem();
         deleteButton.Click += (_, _) => DeleteSelectedItem();
@@ -69,9 +71,10 @@ public sealed class VaultForm : Form
         copyUsernameButton.Click += (_, _) => CopySelectedUsername();
         copyPasswordButton.Click += (_, _) => CopySelectedPassword();
         copyTotpButton.Click += (_, _) => CopySelectedTotp();
+        historyButton.Click += (_, _) => ViewPasswordHistory();
         toolbar.Controls.AddRange([addButton, editButton, deleteButton, viewSecretButton, copyUsernameButton,
-            copyPasswordButton, copyTotpButton, importCsvButton, importBackupButton, exportBackupButton,
-            settingsButton, hashToolButton, lockButton]);
+            copyPasswordButton, copyTotpButton, historyButton, importCsvButton, backupCenterButton,
+            securityButton, trashButton, settingsButton, hashToolButton, lockButton]);
 
         var filterRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4 };
         filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
@@ -259,60 +262,6 @@ public sealed class VaultForm : Form
         });
     }
 
-    private void ExportBackup()
-    {
-        using var passphraseForm = new BackupPassphraseForm(requireConfirmation: true);
-        if (passphraseForm.ShowDialog(this) != DialogResult.OK) return;
-        using var dialog = new SaveFileDialog
-        {
-            Title = "Export Encrypted PasswordTool Backup",
-            Filter = "PasswordTool JSON backup (*.json)|*.json",
-            AddExtension = true,
-            DefaultExt = "json",
-            FileName = $"PasswordTool-backup-{DateTime.Now:yyyy-MM-dd}.json",
-            OverwritePrompt = true
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        var code = RequestSensitiveAuthorization("Export Backup", "Confirm with the PasswordTool Authenticator code before exporting vault secrets.");
-        if (code is null) return;
-        RunVaultAction(() =>
-        {
-            File.WriteAllText(dialog.FileName, vaultService.ExportBackupJson(passphraseForm.Passphrase, code));
-            MessageBox.Show("The encrypted backup was exported successfully.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        });
-    }
-
-    private void ImportBackup()
-    {
-        using var dialog = new OpenFileDialog { Title = "Import Encrypted PasswordTool Backup", Filter = "PasswordTool JSON backup (*.json)|*.json", CheckFileExists = true };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        string json;
-        try
-        {
-            var info = new FileInfo(dialog.FileName);
-            if (info.Length > VaultBackupService.MaxBackupJsonCharacters) throw new InvalidDataException("The selected backup exceeds the 10 MB limit.");
-            json = File.ReadAllText(dialog.FileName);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            ShowError(ex.Message);
-            return;
-        }
-        using var passphraseForm = new BackupPassphraseForm(requireConfirmation: false);
-        if (passphraseForm.ShowDialog(this) != DialogResult.OK) return;
-        var code = RequestSensitiveAuthorization("Import Backup", "Confirm with the PasswordTool Authenticator code before reviewing imported items.");
-        if (code is null) return;
-        RunVaultAction(() =>
-        {
-            var plan = vaultService.PreviewBackupImport(json, passphraseForm.Passphrase, code);
-            using var review = new VaultImportReviewForm(plan);
-            if (review.ShowDialog(this) != DialogResult.OK) return;
-            var count = vaultService.ImportBackupJson(json, passphraseForm.Passphrase, string.Empty);
-            LoadItems();
-            MessageBox.Show($"Imported {count} new item(s). Existing items were not overwritten.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        });
-    }
-
     private string? RequestSensitiveAuthorization(string title, string prompt)
     {
         if (!vaultService.IsGoogleAuthenticatorConfigured || vaultService.IsSensitiveSessionActive) return string.Empty;
@@ -337,6 +286,98 @@ public sealed class VaultForm : Form
     {
         using var settings = new VaultSettingsForm(vaultService);
         settings.ShowDialog(this);
+        if (settings.RequiresVaultLock) LockVault();
+    }
+
+    private void OpenBackupRecoveryCenter()
+    {
+        using var center = new BackupRecoveryCenterForm(vaultService, LoadItems);
+        center.ShowDialog(this);
+        if (center.RequiresVaultLock) LockVault();
+    }
+
+    private void ViewPasswordHistory()
+    {
+        if (!TryGetSelectedItem(out var selected) || selected.Type != VaultItemType.Password) return;
+        var code = RequestSensitiveAuthorization("Password History", "Confirm before viewing previous passwords.");
+        if (code is null) return;
+        RunVaultAction(() =>
+        {
+            var history = vaultService.GetPasswordHistory(selected.Id, code);
+            var text = history.Count == 0
+                ? "No previous passwords are stored for this item."
+                : string.Join(Environment.NewLine + Environment.NewLine,
+                    history.Select(entry => $"{entry.ChangedAt.ToLocalTime():g}{Environment.NewLine}{entry.Password}"));
+            ShowTextDialog("Password History (latest 10)", text, multiline: true);
+        });
+    }
+
+    private void OpenSecurityCheck()
+    {
+        var code = RequestSensitiveAuthorization("Local Security Check", "Confirm before checking encrypted passwords locally.");
+        if (code is null) return;
+        RunVaultAction(() =>
+        {
+            using var form = new VaultSecurityCheckForm(vaultService.GetSecurityFindings(code));
+            form.ShowDialog(this);
+        });
+    }
+
+    private void OpenTrash()
+    {
+        using var dialog = new Form
+        {
+            Text = "Trash - automatically removed after 30 days",
+            StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(700, 420),
+            Padding = new Padding(16)
+        };
+        FormIconService.Apply(dialog);
+        var list = new ListBox { Dock = DockStyle.Fill };
+        var restore = new Button { Text = "Restore", Width = 100 };
+        var permanentDelete = new Button { Text = "Delete permanently", Width = 150 };
+        var close = new Button { Text = "Close", Width = 100, DialogResult = DialogResult.Cancel };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42, FlowDirection = FlowDirection.RightToLeft };
+        buttons.Controls.Add(close);
+        buttons.Controls.Add(permanentDelete);
+        buttons.Controls.Add(restore);
+        dialog.Controls.Add(list);
+        dialog.Controls.Add(buttons);
+
+        void Reload()
+        {
+            list.Items.Clear();
+            foreach (var item in vaultService.GetDeletedItems()) list.Items.Add(new TrashRow(item.Id, item.Title, item.DeletedAt));
+        }
+        restore.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not TrashRow row) return;
+            RunVaultAction(() => { vaultService.RestoreDeletedItem(row.Id); Reload(); LoadItems(); });
+        };
+        permanentDelete.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not TrashRow row) return;
+            if (MessageBox.Show("This cannot be undone. Delete permanently?", "PasswordTool", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            var code = RequestSensitiveAuthorization("Delete Permanently", "Confirm before permanently deleting this item.");
+            if (code is null) return;
+            RunVaultAction(() => { vaultService.PermanentlyDeleteItem(row.Id, code); Reload(); });
+        };
+        Reload();
+        dialog.ShowDialog(this);
+    }
+
+    private void SessionTimer_Tick(object? sender, EventArgs e)
+    {
+        UpdateSensitiveSessionLabel();
+        if (GetSystemIdleTime() >= TimeSpan.FromMinutes(10)) LockVault();
+    }
+
+    private static TimeSpan GetSystemIdleTime()
+    {
+        var info = new LastInputInfo { Size = (uint)Marshal.SizeOf<LastInputInfo>() };
+        if (!GetLastInputInfo(ref info)) return TimeSpan.Zero;
+        var elapsed = unchecked((uint)Environment.TickCount - info.TickCount);
+        return TimeSpan.FromMilliseconds(elapsed);
     }
 
     private void OpenHashTool()
@@ -389,6 +430,7 @@ public sealed class VaultForm : Form
         copyUsernameButton.Enabled = selected;
         copyPasswordButton.Enabled = selected && item.Type == VaultItemType.Password;
         copyTotpButton.Enabled = selected && item.HasTotp;
+        historyButton.Enabled = selected && item.Type == VaultItemType.Password;
         viewSecretButton.Text = selected && item.Type == VaultItemType.RecoveryCodes ? "View Codes" : "View Password";
     }
 
@@ -415,4 +457,20 @@ public sealed class VaultForm : Form
     private static void ShowError(string message) => MessageBox.Show(message, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
 
     private sealed record VaultItemRowTag(Guid Id, VaultItemType Type, bool HasTotp);
+
+    private sealed record TrashRow(Guid Id, string Title, DateTimeOffset? DeletedAt)
+    {
+        public override string ToString() => $"{Title} — deleted {DeletedAt?.ToLocalTime():g}";
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LastInputInfo
+    {
+        public uint Size;
+        public uint TickCount;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetLastInputInfo(ref LastInputInfo info);
 }

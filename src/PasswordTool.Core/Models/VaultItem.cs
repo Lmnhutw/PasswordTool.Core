@@ -14,6 +14,8 @@ public sealed class VaultItem
 
     public string Password { get; set; } = string.Empty;
 
+    public List<PasswordHistoryEntry> PasswordHistory { get; set; } = [];
+
     public string TotpSecretBase32 { get; set; } = string.Empty;
 
     public List<string> RecoveryCodes { get; set; } = [];
@@ -37,6 +39,10 @@ public sealed class VaultItem
     public string Folder { get; set; } = string.Empty;
 
     public List<string> Tags { get; set; } = [];
+
+    public bool IsDeleted { get; set; }
+
+    public DateTimeOffset? DeletedAt { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

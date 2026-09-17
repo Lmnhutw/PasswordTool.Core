@@ -28,6 +28,7 @@ public sealed class VaultBackupService
     private const int MaxTags = 20;
     private const int MaxTagLength = 100;
     private const int MaxTotpSecretLength = 512;
+    private const int MaxPasswordHistoryEntries = 10;
     private static readonly TotpService TotpService = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -83,6 +84,26 @@ public sealed class VaultBackupService
 
     public IReadOnlyList<VaultItem> ReadBackup(string backupJson, string passphrase)
     {
+        return ReadAndValidateBackup(backupJson, passphrase).Payload.Items.Select(Clone).ToList();
+    }
+
+    public VaultBackupInspection InspectBackup(string backupJson, string passphrase)
+    {
+        var backup = ReadAndValidateBackup(backupJson, passphrase);
+        var items = backup.Payload.Items;
+        return new VaultBackupInspection(
+            backup.Envelope.Format,
+            backup.Envelope.Version,
+            backup.Payload.CreatedAtUtc == default ? null : backup.Payload.CreatedAtUtc,
+            items.Count,
+            items.Count(item => item.Type == VaultItemType.Password),
+            items.Count(item => item.Type == VaultItemType.RecoveryCodes),
+            items.Count(item => !item.IsDeleted),
+            items.Count(item => item.IsDeleted));
+    }
+
+    private BackupContents ReadAndValidateBackup(string backupJson, string passphrase)
+    {
         ValidatePassphrase(passphrase);
         if (string.IsNullOrWhiteSpace(backupJson) || backupJson.Length > MaxBackupJsonCharacters)
         {
@@ -118,7 +139,7 @@ public sealed class VaultBackupService
 
             payload.Items ??= [];
             ValidateItems(payload.Items);
-            return payload.Items.Select(Clone).ToList();
+            return new BackupContents(envelope, payload);
         }
         finally
         {
@@ -171,6 +192,7 @@ public sealed class VaultBackupService
             ValidateLength(item.Folder, MaxFolderLength, "folder");
             ValidateLength(item.TotpSecretBase32, MaxTotpSecretLength, "TOTP secret");
             item.Tags ??= [];
+            item.PasswordHistory ??= [];
             if (item.Tags.Count > MaxTags
                 || item.Tags.Any(tag => string.IsNullOrWhiteSpace(tag) || tag.Length > MaxTagLength)
                 || item.Tags.Distinct(StringComparer.OrdinalIgnoreCase).Count() != item.Tags.Count)
@@ -187,6 +209,12 @@ public sealed class VaultBackupService
             if (item.Type == VaultItemType.Password)
             {
                 ValidateLength(item.Password, MaxPasswordLength, "password", required: true);
+                if (item.PasswordHistory.Count > MaxPasswordHistoryEntries
+                    || item.PasswordHistory.Any(entry => entry is null || string.IsNullOrEmpty(entry.Password)
+                        || entry.Password.Length > MaxPasswordLength))
+                {
+                    throw new InvalidDataException($"Password item '{item.Title}' contains invalid password history.");
+                }
                 if (item.RecoveryCodes.Count != 0)
                 {
                     throw new InvalidDataException($"Password item '{item.Title}' contains recovery-code data.");
@@ -200,7 +228,9 @@ public sealed class VaultBackupService
             }
             else
             {
-                if (!string.IsNullOrEmpty(item.Password) || !string.IsNullOrEmpty(item.TotpSecretBase32))
+                if (!string.IsNullOrEmpty(item.Password)
+                    || !string.IsNullOrEmpty(item.TotpSecretBase32)
+                    || item.PasswordHistory.Count != 0)
                 {
                     throw new InvalidDataException($"Recovery-code item '{item.Title}' contains password or TOTP data.");
                 }
@@ -212,6 +242,11 @@ public sealed class VaultBackupService
                 {
                     throw new InvalidDataException($"Recovery-code item '{item.Title}' contains an invalid code list.");
                 }
+            }
+
+            if (item.IsDeleted != item.DeletedAt.HasValue)
+            {
+                throw new InvalidDataException($"Item '{item.Title}' has inconsistent trash metadata.");
             }
         }
     }
@@ -284,6 +319,9 @@ public sealed class VaultBackupService
             && left.Title == right.Title
             && left.Username == right.Username
             && left.Password == right.Password
+            && left.PasswordHistory.Count == right.PasswordHistory.Count
+            && left.PasswordHistory.Zip(right.PasswordHistory).All(pair =>
+                pair.First.Password == pair.Second.Password && pair.First.ChangedAt == pair.Second.ChangedAt)
             && left.TotpSecretBase32 == right.TotpSecretBase32
             && left.Url == right.Url
             && left.HideUrl == right.HideUrl
@@ -291,6 +329,8 @@ public sealed class VaultBackupService
             && left.HideNotes == right.HideNotes
             && left.IsFavorite == right.IsFavorite
             && left.Folder == right.Folder
+            && left.IsDeleted == right.IsDeleted
+            && left.DeletedAt == right.DeletedAt
             && left.CreatedAt == right.CreatedAt
             && left.UpdatedAt == right.UpdatedAt
             && left.RecoveryCodes.SequenceEqual(right.RecoveryCodes, StringComparer.Ordinal)
@@ -306,6 +346,11 @@ public sealed class VaultBackupService
             Title = item.Title,
             Username = item.Username,
             Password = item.Password,
+            PasswordHistory = item.PasswordHistory.Select(entry => new PasswordHistoryEntry
+            {
+                Password = entry.Password,
+                ChangedAt = entry.ChangedAt
+            }).ToList(),
             TotpSecretBase32 = item.TotpSecretBase32,
             RecoveryCodes = [.. item.RecoveryCodes],
             Url = item.Url,
@@ -315,6 +360,8 @@ public sealed class VaultBackupService
             IsFavorite = item.IsFavorite,
             Folder = item.Folder,
             Tags = [.. item.Tags],
+            IsDeleted = item.IsDeleted,
+            DeletedAt = item.DeletedAt,
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
         };
@@ -341,4 +388,6 @@ public sealed class VaultBackupService
 
         public List<VaultItem> Items { get; set; } = [];
     }
+
+    private sealed record BackupContents(BackupEnvelope Envelope, BackupPayload Payload);
 }

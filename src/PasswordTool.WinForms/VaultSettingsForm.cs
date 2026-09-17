@@ -9,6 +9,9 @@ public sealed class VaultSettingsForm : Form
     private readonly RadioButton hybridOption = new();
     private readonly RadioButton googleAuthenticatorOption = new();
     private readonly TextBox masterPasswordTextBox = new();
+    private readonly TotpService totpService = new();
+
+    public bool RequiresVaultLock { get; private set; }
 
     public VaultSettingsForm(VaultService vaultService)
     {
@@ -24,10 +27,10 @@ public sealed class VaultSettingsForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(590, 320);
+        ClientSize = new Size(720, 455);
         Padding = new Padding(16);
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 8 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 155));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
@@ -35,6 +38,8 @@ public sealed class VaultSettingsForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 82));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
 
         hybridOption.Text = "Hybrid login (default)";
@@ -70,6 +75,17 @@ public sealed class VaultSettingsForm : Form
         buttonRow.Controls.Add(cancelButton);
         buttonRow.Controls.Add(saveButton);
 
+        var securityActions = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true };
+        var changeMasterButton = new Button { Text = "Change Master Password", Width = 170, Height = 32 };
+        changeMasterButton.Click += (_, _) => ChangeMasterPassword();
+        var resetAuthenticatorButton = new Button { Text = "Reset Authenticator", Width = 155, Height = 32 };
+        resetAuthenticatorButton.Click += (_, _) => ResetAuthenticator();
+        var snapshotsButton = new Button { Text = "Snapshots", Width = 110, Height = 32 };
+        snapshotsButton.Click += (_, _) => OpenSnapshots();
+        var upgradeKdfButton = new Button { Text = "Upgrade KDF", Width = 115, Height = 32, Enabled = vaultService.NeedsKdfUpgrade };
+        upgradeKdfButton.Click += (_, _) => UpgradeKdf(upgradeKdfButton);
+        securityActions.Controls.AddRange([changeMasterButton, resetAuthenticatorButton, snapshotsButton, upgradeKdfButton]);
+
         layout.Controls.Add(CreateLabel("Sign-in mode"), 0, 0);
         layout.Controls.Add(modePanel, 1, 0);
         layout.SetRowSpan(modePanel, 2);
@@ -77,11 +93,62 @@ public sealed class VaultSettingsForm : Form
         layout.Controls.Add(masterPasswordTextBox, 1, 3);
         layout.Controls.Add(helpLabel, 0, 4);
         layout.SetColumnSpan(helpLabel, 2);
-        layout.Controls.Add(buttonRow, 0, 5);
+        layout.Controls.Add(securityActions, 0, 5);
+        layout.SetColumnSpan(securityActions, 2);
+        layout.Controls.Add(buttonRow, 0, 7);
         layout.SetColumnSpan(buttonRow, 2);
         Controls.Add(layout);
         AcceptButton = saveButton;
         CancelButton = cancelButton;
+    }
+
+    private void ChangeMasterPassword()
+    {
+        using var form = new ChangeMasterPasswordForm(vaultService);
+        if (form.ShowDialog(this) == DialogResult.OK)
+        {
+            masterPasswordTextBox.Clear();
+            MessageBox.Show("The Master Password was changed and the vault was re-encrypted.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    private void ResetAuthenticator()
+    {
+        using var masterPrompt = new MasterPasswordPromptForm("Reset Authenticator", "Enter the Master Password before replacing the PasswordTool Authenticator secret.");
+        if (masterPrompt.ShowDialog(this) != DialogResult.OK) return;
+        var secret = totpService.GenerateSecret();
+        var uri = totpService.CreateOtpAuthUri(secret, "PasswordTool", Environment.UserName);
+        using var setup = new SetupAuthenticatorForm(secret, uri, totpService);
+        if (setup.ShowDialog(this) != DialogResult.OK) return;
+        if (!vaultService.TryResetAuthenticator(masterPrompt.MasterPassword, secret, setup.VerifiedCode, out var error))
+        {
+            MessageBox.Show(error, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        MessageBox.Show("Authenticator reset complete. The previous secret and trusted token no longer work.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void OpenSnapshots()
+    {
+        using var form = new VaultSnapshotsForm(vaultService);
+        form.ShowDialog(this);
+        if (!form.Restored) return;
+        RequiresVaultLock = true;
+        DialogResult = DialogResult.OK;
+        Close();
+    }
+
+    private void UpgradeKdf(Button button)
+    {
+        using var prompt = new MasterPasswordPromptForm("Upgrade KDF", "Enter the Master Password to re-encrypt this vault with the current Argon2id settings.");
+        if (prompt.ShowDialog(this) != DialogResult.OK) return;
+        if (!vaultService.TryUpgradeKdf(prompt.MasterPassword, out var error))
+        {
+            MessageBox.Show(error, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        button.Enabled = false;
+        MessageBox.Show("The vault now uses the current Argon2id settings.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void SaveButton_Click(object? sender, EventArgs e)

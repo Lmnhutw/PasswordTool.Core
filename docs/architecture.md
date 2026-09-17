@@ -16,10 +16,11 @@ PasswordTool.Api ──────┘
 
 ```text
 First launch
-  Master Password + generated TOTP secret + confirmed 6-digit code
-    -> PBKDF2-HMAC-SHA256 (600,000 iterations, random 32-byte salt)
+  choose empty vault or authenticated encrypted-backup recovery
+  -> new Master Password + generated TOTP secret + confirmed 6-digit code
+    -> Argon2id (3 passes, 64 MiB, parallelism 2, random 32-byte salt)
     -> 256-bit key
-    -> encrypt config secret and empty vault with AES-256-GCM
+    -> encrypt config secret and empty or recovered vault with AES-256-GCM
     -> optionally create a one-day DPAPI-CurrentUser trusted token
 
 Master Password unlock
@@ -30,16 +31,19 @@ Authenticator unlock
 ```
 
 A Master Password is always the recovery path for an unexpired-token failure. There is no recovery/reset/backdoor if the Master Password, authenticator secret, and usable encrypted backup are lost.
+Legacy PBKDF2-HMAC-SHA256 vaults remain readable and are upgraded only after the current Master Password is verified. Changing the Master Password always creates a fresh Argon2id salt and re-encrypts the full vault.
 
 ## Persisted data
 
 | File | Purpose | Protection |
 | --- | --- | --- |
-| `%LocalAppData%\PasswordTool\.config` | KDF metadata, login preference, encrypted TOTP secret | TOTP secret is AES-256-GCM encrypted with the derived vault key. |
+| `%LocalAppData%\PasswordTool\.config` | KDF metadata, login preference, encrypted TOTP secret, nullable external-backup and verification timestamps | TOTP secret is AES-256-GCM encrypted with the derived vault key. No backup path or passphrase is stored. |
 | `%LocalAppData%\PasswordTool\.storage` | Vault items | Entire JSON payload is AES-256-GCM encrypted. |
 | `%LocalAppData%\PasswordTool\.trusted-unlock` | Optional one-day trusted-device token | Vault key protected with Windows DPAPI for CurrentUser and tied to a config fingerprint. |
+| `%LocalAppData%\PasswordTool\.snapshots` | Up to five prior config/vault pairs | Config and vault remain in their normal encrypted-at-rest formats. |
 
 Hidden/System file attributes are only obfuscation. Treat an incomplete `.config`/`.storage` pair as an error; never silently recreate or overwrite it.
+Config and vault writes are one logical state transition: stage both, snapshot the previous complete pair, replace both, and roll back both after a write failure. Snapshot restore also restores a complete pair and removes the trusted-unlock token.
 
 ## Vault and backup invariants
 
@@ -50,9 +54,16 @@ Hidden/System file attributes are only obfuscation. Treat an incomplete `.config
 - TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when a TOTP secret exists.
 - A successful application-TOTP check authorizes sensitive actions for five minutes. The authorization is in-memory only and is cleared with the vault session.
 - Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
+- Inspection authenticates and validates the complete backup but returns only format/version, creation time, and item/type/active/Trash counts. It never returns the decrypted payload or secret fields.
+- New-machine recovery is allowed only when neither `.config` nor `.storage` exists. Core validates the backup, new Master Password, and new Authenticator confirmation before atomically committing a fresh Argon2id config and recovered encrypted vault. It never imports the old config, vault key, trusted token, or application Authenticator secret.
+- Backup-health timestamps change only after an external file write or full authenticated verification succeeds. Config metadata updates use the same paired config/vault state transaction.
+- Internal snapshots live beside the vault on the same disk and are not an external or disaster-recovery backup.
 - Import is validate-then-commit: enforce 10 MB, JSON depth 32, exact format/KDF/version, authenticated decryption, item limits, and unique IDs; show new/duplicate/conflict items; add new IDs only; rollback in-memory additions when save fails.
 - Plaintext CSV import is bounded to 10 MB, 10,000 rows, 64 columns, and bounded fields. It recognizes common browser/manager headers, skips non-login or passwordless rows, previews content, and adds only accounts that do not already match title, username, URL, and password.
 - Password and passphrase generation uses `RandomNumberGenerator`; no generated secret is logged or persisted until the user saves the item.
+- Password changes keep at most 10 encrypted history entries. Soft-deleted items are excluded from normal queries and are purged after 30 days.
+- Local Security Check runs only against decrypted in-memory data and returns item metadata plus finding type, never a password value.
+- The desktop process enforces one instance and locks after 10 minutes of system inactivity.
 
 ## Password hashing
 

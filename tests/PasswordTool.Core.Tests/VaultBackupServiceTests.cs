@@ -50,6 +50,50 @@ public sealed class VaultBackupServiceTests
     }
 
     [Fact]
+    public void Inspection_returns_only_safe_authenticated_metadata()
+    {
+        var service = new VaultBackupService();
+        var items = CreateItems();
+        items[1].IsDeleted = true;
+        items[1].DeletedAt = DateTimeOffset.UtcNow;
+        var createdAt = new DateTimeOffset(2026, 9, 17, 8, 30, 0, TimeSpan.Zero);
+        var json = service.CreateBackup(items, BackupPassphrase, createdAt);
+
+        var inspection = service.InspectBackup(json, BackupPassphrase);
+
+        Assert.Equal("PasswordToolBackup", inspection.Format);
+        Assert.Equal(1, inspection.Version);
+        Assert.Equal(createdAt, inspection.CreatedAt);
+        Assert.Equal(2, inspection.TotalItemCount);
+        Assert.Equal(1, inspection.PasswordItemCount);
+        Assert.Equal(1, inspection.RecoveryCodeItemCount);
+        Assert.Equal(1, inspection.ActiveItemCount);
+        Assert.Equal(1, inspection.TrashItemCount);
+        Assert.DoesNotContain("account-password", inspection.ToString());
+        Assert.DoesNotContain("abcd-1234", inspection.ToString());
+        Assert.DoesNotContain(BackupPassphrase, inspection.ToString());
+    }
+
+    [Fact]
+    public void Inspection_uses_the_same_generic_authentication_error_for_wrong_or_tampered_backups()
+    {
+        var service = new VaultBackupService();
+        var json = service.CreateBackup(CreateItems(), BackupPassphrase, DateTimeOffset.UtcNow);
+        var wrongPassphrase = Assert.Throws<CryptographicException>(
+            () => service.InspectBackup(json, "incorrect backup passphrase"));
+
+        var document = JsonNode.Parse(json)!.AsObject();
+        var encryptedPayload = document["EncryptedPayload"]!.AsObject();
+        var ciphertext = encryptedPayload["CipherTextBase64"]!.GetValue<string>();
+        encryptedPayload["CipherTextBase64"] = (ciphertext[0] == 'A' ? "B" : "A") + ciphertext[1..];
+        var tampered = Assert.Throws<CryptographicException>(
+            () => service.InspectBackup(document.ToJsonString(), BackupPassphrase));
+
+        Assert.Equal(wrongPassphrase.Message, tampered.Message);
+        Assert.DoesNotContain(BackupPassphrase, wrongPassphrase.ToString());
+    }
+
+    [Fact]
     public void Import_plan_separates_new_duplicate_and_conflicting_ids()
     {
         var service = new VaultBackupService();
