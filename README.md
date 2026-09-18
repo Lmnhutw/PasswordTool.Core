@@ -138,17 +138,21 @@ The API currently exposes local development endpoints:
 
 It has no authentication, rate limiting, or production hardening today. Do not expose it to an untrusted network. See [the API README](src/PasswordTool.Api/README.md) before running it.
 
-## Publish a single-file EXE
+## Windows releases
+
+PasswordTool supports Windows x64. The release workflow publishes a deterministic .NET 10, self-contained, single-file WinForms payload, so end-user machines do not need a separately installed .NET runtime. It has no runtime network, update, telemetry, account, or cloud dependency.
+
+Create an unsigned developer/test release with a new numeric `major.minor.patch` version:
 
 ```powershell
-dotnet publish src\PasswordTool.WinForms\PasswordTool.WinForms.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+pwsh .\scripts\Publish-WindowsRelease.ps1 -Version 1.0.0
 ```
 
-Output:
+The script writes a non-overwriting versioned directory under `artifacts\releases\1.0.0`. It validates the published payload, excludes vault and source inputs, produces a portable ZIP, and writes SHA-256 checksums, a public static release manifest, and an explicit `release-status.txt`. Do not distribute a release whose status says `UNSIGNED` as a production-signed release.
 
-```text
-src\PasswordTool.WinForms\bin\Release\net10.0-windows\win-x64\publish\PasswordTool.WinForms.exe
-```
+An Inno Setup template is included for a per-user x64 installer. When `ISCC.exe` is already installed, the release script compiles it and adds the installer to the checksums. When it is unavailable, the script intentionally produces only the portable ZIP and leaves the documented installer handoff; it never downloads a compiler or packaging dependency.
+
+For signing configuration, checksum/signature verification, installer data-retention behavior, manual updates, and the operator checklist, read [docs/release-operations.md](docs/release-operations.md).
 
 ## Repository layout
 
