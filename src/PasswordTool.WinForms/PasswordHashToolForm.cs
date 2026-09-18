@@ -40,6 +40,7 @@ public sealed class PasswordHashToolForm : Form
         BuildInterface();
         LoadAlgorithmOptions();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     private void BuildInterface()

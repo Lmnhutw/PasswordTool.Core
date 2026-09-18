@@ -17,6 +17,7 @@ public sealed class SetupAuthenticatorForm : Form
         this.totpService = totpService;
         BuildInterface();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     public string SecretBase32 { get; }

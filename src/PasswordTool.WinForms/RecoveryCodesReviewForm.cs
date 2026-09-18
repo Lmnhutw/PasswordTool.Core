@@ -12,6 +12,7 @@ internal sealed class RecoveryCodesReviewForm : Form
         ClientSize = new Size(560, 430);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));

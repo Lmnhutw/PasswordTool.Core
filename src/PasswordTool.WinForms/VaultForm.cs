@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Microsoft.Win32;
@@ -12,19 +13,34 @@ public sealed class VaultForm : Form
     private readonly SensitiveClipboardService clipboardService = new();
     private readonly DataGridView itemsGrid = new();
     private readonly TextBox searchTextBox = new();
-    private readonly CheckBox favoritesOnlyCheckBox = new() { Text = "Favorites only", AutoSize = true };
-    private readonly Label sensitiveSessionLabel = new() { AutoSize = true };
-    private readonly Button editButton = new() { Text = "Edit", Width = 78 };
-    private readonly Button deleteButton = new() { Text = "Delete", Width = 78 };
-    private readonly Button viewSecretButton = new() { Text = "View", Width = 90 };
-    private readonly Button copyUsernameButton = new() { Text = "Copy User", Width = 92 };
-    private readonly Button copyPasswordButton = new() { Text = "Copy Password", Width = 112 };
-    private readonly Button copyTotpButton = new() { Text = "Copy TOTP", Width = 96 };
-    private readonly Button historyButton = new() { Text = "History", Width = 82 };
+    private readonly ComboBox viewFilterComboBox = new();
+    private readonly ComboBox folderFilterComboBox = new();
+    private readonly Label sensitiveSessionLabel = new();
+    private readonly Label sensitiveSessionDescriptionLabel = new();
+    private readonly Panel sensitiveSessionPanel = new();
+    private readonly Label emptyStateLabel = new();
+    private readonly Label selectionStatusLabel = new();
+    private readonly Label itemCountLabel = new();
+    private readonly Button addItemButton = new() { Text = "+  New item", Width = 126, Height = 38 };
+    private readonly Button viewSecretButton = new() { Text = "View", Width = 118, Height = 38 };
+    private readonly Button copyUsernameButton = new() { Text = "Copy username", Width = 142, Height = 38 };
+    private readonly Button copyPasswordButton = new() { Text = "Copy password", Width = 142, Height = 38 };
+    private readonly Button moreButton = new() { Text = "More...", Width = 92, Height = 38 };
+    private readonly Button toolsButton = new() { Text = "Tools", Width = 96, Height = 38 };
+    private readonly ContextMenuStrip moreMenu = new();
+    private readonly ContextMenuStrip toolsMenu = new();
+    private readonly ToolStripMenuItem editMenuItem = new("Edit item");
+    private readonly ToolStripMenuItem copyTotpMenuItem = new("Copy TOTP");
+    private readonly ToolStripMenuItem historyMenuItem = new("Password history");
+    private readonly ToolStripMenuItem deleteMenuItem = new("Move to trash");
     private readonly System.Windows.Forms.Timer sessionTimer = new() { Interval = 1_000 };
     private IReadOnlyList<VaultItem> allItems = [];
     private TimeSpan inactivityLockTimeout;
     private bool lifecycleEventsSubscribed;
+    private bool refreshingFolderFilter;
+    private VaultFilterKind currentFilter = VaultFilterKind.All;
+    private string sortColumnName = "Title";
+    private ListSortDirection sortDirection = ListSortDirection.Ascending;
 
     public bool LockRequested { get; private set; }
 
@@ -33,8 +49,12 @@ public sealed class VaultForm : Form
         this.vaultService = vaultService;
         RefreshSecurityTimeouts();
         BuildInterface();
-        LoadItems();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
+        UiTheme.StylePrimaryButton(addItemButton);
+        UiTheme.StyleMenu(moreMenu);
+        UiTheme.StyleMenu(toolsMenu);
+        LoadItems();
         sessionTimer.Tick += SessionTimer_Tick;
         sessionTimer.Start();
     }
@@ -62,57 +82,298 @@ public sealed class VaultForm : Form
         base.OnFormClosed(e);
     }
 
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == (Keys.Control | Keys.F))
+        {
+            searchTextBox.Focus();
+            searchTextBox.SelectAll();
+            return true;
+        }
+        if (keyData == (Keys.Control | Keys.N))
+        {
+            AddItem();
+            return true;
+        }
+        if (keyData == Keys.Enter && itemsGrid.ContainsFocus && TryGetSelectedItem(out _))
+        {
+            EditSelectedItem();
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
     private void BuildInterface()
     {
         Text = "Password Vault";
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(1280, 720);
-        MinimumSize = new Size(1050, 620);
-        Padding = new Padding(12);
+        MinimumSize = new Size(1024, 640);
+        Padding = new Padding(16);
+        KeyPreview = true;
+        AutoScaleMode = AutoScaleMode.Dpi;
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 5,
+            BackColor = UiTheme.WindowBackground
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 82));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true };
-        var addButton = CreateToolbarButton("Add", 72, (_, _) => AddItem());
-        var settingsButton = CreateToolbarButton("Settings", 88, (_, _) => OpenSettings());
-        var importCsvButton = CreateToolbarButton("Import CSV", 96, (_, _) => ImportCsv());
-        var backupCenterButton = CreateToolbarButton("Backup & Recovery", 142, (_, _) => OpenBackupRecoveryCenter());
-        var hashToolButton = CreateToolbarButton("Hash Tool", 92, (_, _) => OpenHashTool());
-        var trashButton = CreateToolbarButton("Trash", 72, (_, _) => OpenTrash());
-        var securityButton = CreateToolbarButton("Security Check", 112, (_, _) => OpenSecurityCheck());
-        var lockButton = CreateToolbarButton("Lock", 72, (_, _) => LockVault());
-        editButton.Click += (_, _) => EditSelectedItem();
-        deleteButton.Click += (_, _) => DeleteSelectedItem();
+        var header = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = UiTheme.Surface,
+            Padding = new Padding(16, 8, 12, 8),
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360));
+        var titleBlock = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            BackColor = UiTheme.Surface,
+            Margin = Padding.Empty
+        };
+        titleBlock.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        titleBlock.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var title = new Label
+        {
+            Text = "Password Vault",
+            Dock = DockStyle.Fill,
+            Font = new Font(UiTheme.DefaultFont.FontFamily, 16F, FontStyle.Bold),
+            TextAlign = ContentAlignment.BottomLeft,
+            AccessibleName = "Password Vault"
+        };
+        var subtitle = new Label
+        {
+            Dock = DockStyle.Fill,
+            Text = "Your encrypted credentials, organized and ready when you need them.",
+            TextAlign = ContentAlignment.TopLeft,
+            ForeColor = UiTheme.TextSecondary,
+            AutoEllipsis = true
+        };
+        titleBlock.Controls.Add(title, 0, 0);
+        titleBlock.Controls.Add(subtitle, 0, 1);
+
+        var headerActions = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = UiTheme.Surface,
+            Margin = Padding.Empty
+        };
+        headerActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        headerActions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+        var lockButton = new Button
+        {
+            Text = "Lock",
+            Dock = DockStyle.Top,
+            Height = 38,
+            Margin = Padding.Empty
+        };
+        var lockHost = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Padding = new Padding(12, 11, 0, 11),
+            BackColor = UiTheme.Surface
+        };
+        lockHost.Controls.Add(lockButton);
+        lockButton.Click += (_, _) => LockVault();
+        var vaultStatus = new Label
+        {
+            Text = "Vault unlocked\r\nItems available; secrets remain protected",
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleRight,
+            ForeColor = UiTheme.TextSecondary,
+            AutoEllipsis = true,
+            AccessibleName = "Vault unlocked. Secrets remain protected."
+        };
+        headerActions.Controls.Add(vaultStatus, 0, 0);
+        headerActions.Controls.Add(lockHost, 1, 0);
+        header.Controls.Add(titleBlock, 0, 0);
+        header.Controls.Add(headerActions, 1, 0);
+
+        var commandBar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = UiTheme.Surface,
+            Padding = new Padding(10, 8, 10, 8),
+            Margin = Padding.Empty
+        };
+        commandBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        commandBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        var selectionActions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            WrapContents = false,
+            BackColor = UiTheme.Surface,
+            Margin = Padding.Empty
+        };
+        addItemButton.Margin = new Padding(0, 0, 8, 0);
+        copyUsernameButton.Margin = new Padding(0, 0, 8, 0);
+        copyPasswordButton.Margin = new Padding(0, 0, 8, 0);
+        viewSecretButton.Margin = new Padding(0, 0, 8, 0);
+        moreButton.Margin = Padding.Empty;
+        toolsButton.Dock = DockStyle.Top;
+        toolsButton.Height = 38;
+        toolsButton.Margin = Padding.Empty;
+        var toolsHost = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Padding = new Padding(14, 4, 0, 4),
+            BackColor = UiTheme.Surface
+        };
+        toolsHost.Controls.Add(toolsButton);
+        addItemButton.Click += (_, _) => AddItem();
         viewSecretButton.Click += (_, _) => ViewSelectedSecret();
         copyUsernameButton.Click += (_, _) => CopySelectedUsername();
         copyPasswordButton.Click += (_, _) => CopySelectedPassword();
-        copyTotpButton.Click += (_, _) => CopySelectedTotp();
-        historyButton.Click += (_, _) => ViewPasswordHistory();
-        toolbar.Controls.AddRange([addButton, editButton, deleteButton, viewSecretButton, copyUsernameButton,
-            copyPasswordButton, copyTotpButton, historyButton, importCsvButton, backupCenterButton,
-            securityButton, trashButton, settingsButton, hashToolButton, lockButton]);
+        moreButton.Click += (_, _) => moreMenu.Show(moreButton, new Point(0, moreButton.Height));
+        toolsButton.Click += (_, _) => toolsMenu.Show(toolsButton, new Point(0, toolsButton.Height));
+        selectionActions.Controls.AddRange([addItemButton, copyUsernameButton, copyPasswordButton, viewSecretButton, moreButton]);
+        commandBar.Controls.Add(selectionActions, 0, 0);
+        commandBar.Controls.Add(toolsHost, 1, 0);
 
-        var filterRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4 };
-        filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+        editMenuItem.Click += (_, _) => EditSelectedItem();
+        copyTotpMenuItem.Click += (_, _) => CopySelectedTotp();
+        historyMenuItem.Click += (_, _) => ViewPasswordHistory();
+        deleteMenuItem.Click += (_, _) => DeleteSelectedItem();
+        deleteMenuItem.ForeColor = UiTheme.Danger;
+        moreMenu.Items.AddRange([editMenuItem, copyTotpMenuItem, historyMenuItem, new ToolStripSeparator(), deleteMenuItem]);
+        toolsMenu.Items.Add("Security Check", null, (_, _) => OpenSecurityCheck());
+        toolsMenu.Items.Add("Backup & Recovery", null, (_, _) => OpenBackupRecoveryCenter());
+        toolsMenu.Items.Add("Import CSV", null, (_, _) => ImportCsv());
+        toolsMenu.Items.Add(new ToolStripSeparator());
+        toolsMenu.Items.Add("Trash", null, (_, _) => OpenTrash());
+        toolsMenu.Items.Add("Settings", null, (_, _) => OpenSettings());
+        toolsMenu.Items.Add("Hash Tool", null, (_, _) => OpenHashTool());
+
+        var filterRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = UiTheme.WindowBackground,
+            Padding = new Padding(0, 8, 0, 8),
+            Margin = Padding.Empty
+        };
         filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
-        filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260));
-        filterRow.Controls.Add(new Label { Text = "Search", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-        searchTextBox.Dock = DockStyle.Fill;
-        searchTextBox.PlaceholderText = "Title, username, URL, folder, or tag";
+        filterRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330));
+        var filters = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = UiTheme.WindowBackground,
+            Margin = Padding.Empty
+        };
+        filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        filters.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 164));
+        filters.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 184));
+        filters.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        searchTextBox.AutoSize = true;
+        searchTextBox.Dock = DockStyle.Top;
+        searchTextBox.PlaceholderText = "Search title, username, URL, folder, or tag";
+        searchTextBox.AccessibleName = "Search vault";
+        searchTextBox.Margin = Padding.Empty;
         searchTextBox.TextChanged += (_, _) => ApplyFilters();
-        favoritesOnlyCheckBox.CheckedChanged += (_, _) => ApplyFilters();
-        filterRow.Controls.Add(searchTextBox, 1, 0);
-        filterRow.Controls.Add(favoritesOnlyCheckBox, 2, 0);
-        filterRow.Controls.Add(sensitiveSessionLabel, 3, 0);
+
+        viewFilterComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        viewFilterComboBox.DisplayMember = nameof(ViewFilterOption.DisplayName);
+        viewFilterComboBox.Dock = DockStyle.Top;
+        viewFilterComboBox.Margin = Padding.Empty;
+        viewFilterComboBox.AccessibleName = "Item type filter";
+        viewFilterComboBox.Items.AddRange(
+        [
+            new ViewFilterOption("All items", VaultFilterKind.All),
+            new ViewFilterOption("Favorites", VaultFilterKind.Favorites),
+            new ViewFilterOption("Passwords", VaultFilterKind.Passwords),
+            new ViewFilterOption("Recovery codes", VaultFilterKind.RecoveryCodes)
+        ]);
+        viewFilterComboBox.SelectedIndex = 0;
+        viewFilterComboBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (viewFilterComboBox.SelectedItem is not ViewFilterOption option) return;
+            currentFilter = option.Filter;
+            ApplyFilters();
+        };
+
+        folderFilterComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        folderFilterComboBox.DisplayMember = nameof(FolderFilterOption.DisplayName);
+        folderFilterComboBox.Dock = DockStyle.Top;
+        folderFilterComboBox.Margin = Padding.Empty;
+        folderFilterComboBox.AccessibleName = "Folder filter";
+        folderFilterComboBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (!refreshingFolderFilter) ApplyFilters();
+        };
+        filters.Controls.Add(CreateFilterHost(searchTextBox, rightPadding: 12), 0, 0);
+        filters.Controls.Add(CreateFilterHost(viewFilterComboBox, rightPadding: 12), 1, 0);
+        filters.Controls.Add(CreateFilterHost(folderFilterComboBox, rightPadding: 0), 2, 0);
+
+        sensitiveSessionPanel.Dock = DockStyle.Fill;
+        sensitiveSessionPanel.Padding = new Padding(14, 8, 14, 6);
+        sensitiveSessionPanel.Margin = new Padding(12, 0, 0, 0);
+        sensitiveSessionPanel.BorderStyle = BorderStyle.FixedSingle;
+        var sensitiveLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
+        sensitiveLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        sensitiveLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        sensitiveSessionLabel.Dock = DockStyle.Fill;
+        sensitiveSessionLabel.Font = new Font(UiTheme.DefaultFont, FontStyle.Bold);
+        sensitiveSessionDescriptionLabel.Dock = DockStyle.Fill;
+        sensitiveSessionDescriptionLabel.AutoEllipsis = true;
+        sensitiveLayout.Controls.Add(sensitiveSessionLabel, 0, 0);
+        sensitiveLayout.Controls.Add(sensitiveSessionDescriptionLabel, 0, 1);
+        sensitiveSessionPanel.Controls.Add(sensitiveLayout);
+        filterRow.Controls.Add(filters, 0, 0);
+        filterRow.Controls.Add(sensitiveSessionPanel, 1, 0);
 
         ConfigureGrid();
-        root.Controls.Add(toolbar, 0, 0);
-        root.Controls.Add(filterRow, 0, 1);
-        root.Controls.Add(itemsGrid, 0, 2);
+        var gridHost = new Panel { Dock = DockStyle.Fill, BackColor = UiTheme.Surface, Padding = new Padding(1) };
+        emptyStateLabel.Dock = DockStyle.Fill;
+        emptyStateLabel.TextAlign = ContentAlignment.MiddleCenter;
+        emptyStateLabel.Font = new Font(UiTheme.DefaultFont.FontFamily, 11F);
+        emptyStateLabel.ForeColor = UiTheme.TextSecondary;
+        emptyStateLabel.BackColor = UiTheme.Surface;
+        emptyStateLabel.Visible = false;
+        gridHost.Controls.Add(itemsGrid);
+        gridHost.Controls.Add(emptyStateLabel);
+
+        var statusBar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            BackColor = UiTheme.WindowBackground,
+            Padding = new Padding(4, 6, 4, 0)
+        };
+        statusBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        statusBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 390));
+        selectionStatusLabel.Dock = DockStyle.Fill;
+        selectionStatusLabel.ForeColor = UiTheme.TextSecondary;
+        itemCountLabel.Dock = DockStyle.Fill;
+        itemCountLabel.ForeColor = UiTheme.TextSecondary;
+        itemCountLabel.TextAlign = ContentAlignment.TopRight;
+        statusBar.Controls.Add(selectionStatusLabel, 0, 0);
+        statusBar.Controls.Add(itemCountLabel, 1, 0);
+
+        root.Controls.Add(header, 0, 0);
+        root.Controls.Add(commandBar, 0, 1);
+        root.Controls.Add(filterRow, 0, 2);
+        root.Controls.Add(gridHost, 0, 3);
+        root.Controls.Add(statusBar, 0, 4);
         Controls.Add(root);
         UpdateSensitiveSessionLabel();
     }
@@ -130,45 +391,186 @@ public sealed class VaultForm : Form
         itemsGrid.RowHeadersVisible = false;
         itemsGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         itemsGrid.SelectionChanged += (_, _) => UpdateButtonState();
-        itemsGrid.CellDoubleClick += (_, _) => EditSelectedItem();
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Favorite", HeaderText = "★", FillWeight = 5 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Title", HeaderText = "Title", FillWeight = 20 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Type", HeaderText = "Type", FillWeight = 12 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Username", HeaderText = "Username", FillWeight = 18 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Folder", HeaderText = "Folder", FillWeight = 12 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Tags", HeaderText = "Tags", FillWeight = 16 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Totp", HeaderText = "TOTP", FillWeight = 8 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Url", HeaderText = "URL", FillWeight = 20 });
-        itemsGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "UpdatedAt", HeaderText = "Updated", FillWeight = 12 });
+        itemsGrid.CellDoubleClick += (_, eventArgs) =>
+        {
+            if (eventArgs.RowIndex >= 0) EditSelectedItem();
+        };
+        itemsGrid.ColumnHeaderMouseClick += ItemsGrid_ColumnHeaderMouseClick;
+        AddSortableColumn("Favorite", "\u2605", 6);
+        AddSortableColumn("Title", "Title", 21);
+        AddSortableColumn("Username", "Username", 20);
+        AddSortableColumn("Type", "Type", 12);
+        AddSortableColumn("Folder", "Folder", 12);
+        AddSortableColumn("Totp", "TOTP", 11);
+        AddSortableColumn("Url", "URL", 20);
+        AddSortableColumn("UpdatedAt", "Updated", 14, typeof(DateTime), "g");
+        UiTheme.StyleGrid(itemsGrid);
+    }
+
+    private static Panel CreateFilterHost(Control control, int rightPadding)
+    {
+        var host = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 16, rightPadding, 0),
+            BackColor = UiTheme.WindowBackground
+        };
+        host.Controls.Add(control);
+        return host;
     }
 
     private void LoadItems()
     {
+        var selectedId = TryGetSelectedItem(out var selected) ? selected.Id : (Guid?)null;
         allItems = vaultService.GetItems();
-        ApplyFilters();
+        RefreshFolderFilter();
+        ApplyFilters(selectedId);
     }
 
-    private void ApplyFilters()
+    private void ApplyFilters(Guid? preferredSelectionId = null)
     {
+        preferredSelectionId ??= TryGetSelectedItem(out var selected) ? selected.Id : null;
         var search = searchTextBox.Text.Trim();
-        var filtered = allItems.Where(item => !favoritesOnlyCheckBox.Checked || item.IsFavorite)
-            .Where(item => search.Length == 0 || MatchesSearch(item, search));
+        var folder = folderFilterComboBox.SelectedItem as FolderFilterOption;
+        var filtered = allItems
+            .Where(MatchesActiveFilter)
+            .Where(item => folder is null || folder.IsAll
+                || folder.IsNoFolder && string.IsNullOrWhiteSpace(item.Folder)
+                || folder.Folder is not null && string.Equals(item.Folder, folder.Folder, StringComparison.CurrentCultureIgnoreCase))
+            .Where(item => search.Length == 0 || MatchesSearch(item, search))
+            .ToList();
+        filtered.Sort(CompareItems);
+
         itemsGrid.Rows.Clear();
         foreach (var item in filtered)
         {
             var rowIndex = itemsGrid.Rows.Add(
-                item.IsFavorite ? "★" : string.Empty,
+                item.IsFavorite ? "\u2605" : string.Empty,
                 item.Title,
-                item.Type == VaultItemType.Password ? "Password" : "Recovery codes",
                 item.Username,
+                GetTypeDisplayName(item),
                 item.Folder,
-                string.Join(", ", item.Tags),
-                item.HasTotp ? "Yes" : string.Empty,
+                item.HasTotp ? "Configured" : "\u2014",
                 item.HideUrl ? "Hidden" : item.Url,
-                item.UpdatedAt.ToLocalTime().ToString("g"));
+                item.UpdatedAt.ToLocalTime().DateTime);
             itemsGrid.Rows[rowIndex].Tag = new VaultItemRowTag(item.Id, item.Type, item.HasTotp);
         }
+
+        itemsGrid.ClearSelection();
+        var rowToSelect = itemsGrid.Rows.Cast<DataGridViewRow>()
+            .FirstOrDefault(row => row.Tag is VaultItemRowTag tag && tag.Id == preferredSelectionId)
+            ?? itemsGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault();
+        if (rowToSelect is not null)
+        {
+            rowToSelect.Selected = true;
+            itemsGrid.CurrentCell = rowToSelect.Cells["Title"];
+        }
+
+        var hasRows = filtered.Count > 0;
+        itemsGrid.Visible = hasRows;
+        emptyStateLabel.Text = allItems.Count == 0
+            ? "No vault items yet.\r\nSelect New item to add your first credential."
+            : "No items match your current search and filters.";
+        emptyStateLabel.Visible = !hasRows;
+        if (!hasRows) emptyStateLabel.BringToFront();
+        itemCountLabel.Text = $"Clipboard clears after 30 seconds     {filtered.Count} of {allItems.Count} items";
+        UpdateSortGlyph();
         UpdateButtonState();
+    }
+
+    private bool MatchesActiveFilter(VaultItem item) => currentFilter switch
+    {
+        VaultFilterKind.Favorites => item.IsFavorite,
+        VaultFilterKind.Passwords => item.Type == VaultItemType.Password,
+        VaultFilterKind.RecoveryCodes => item.Type == VaultItemType.RecoveryCodes,
+        _ => true
+    };
+
+    private int CompareItems(VaultItem left, VaultItem right)
+    {
+        var comparison = sortColumnName switch
+        {
+            "Favorite" => left.IsFavorite.CompareTo(right.IsFavorite),
+            "Username" => CompareText(left.Username, right.Username),
+            "Type" => CompareText(GetTypeDisplayName(left), GetTypeDisplayName(right)),
+            "Folder" => CompareText(left.Folder, right.Folder),
+            "Totp" => left.HasTotp.CompareTo(right.HasTotp),
+            "Url" => CompareText(left.HideUrl ? "Hidden" : left.Url, right.HideUrl ? "Hidden" : right.Url),
+            "UpdatedAt" => left.UpdatedAt.CompareTo(right.UpdatedAt),
+            _ => CompareText(left.Title, right.Title)
+        };
+        return sortDirection == ListSortDirection.Ascending ? comparison : -comparison;
+    }
+
+    private static int CompareText(string? left, string? right) =>
+        StringComparer.CurrentCultureIgnoreCase.Compare(left ?? string.Empty, right ?? string.Empty);
+
+    private void ItemsGrid_ColumnHeaderMouseClick(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        var column = itemsGrid.Columns[e.ColumnIndex];
+        if (sortColumnName == column.Name)
+        {
+            sortDirection = sortDirection == ListSortDirection.Ascending
+                ? ListSortDirection.Descending
+                : ListSortDirection.Ascending;
+        }
+        else
+        {
+            sortColumnName = column.Name;
+            sortDirection = ListSortDirection.Ascending;
+        }
+        ApplyFilters();
+    }
+
+    private void UpdateSortGlyph()
+    {
+        foreach (DataGridViewColumn column in itemsGrid.Columns)
+        {
+            column.HeaderCell.SortGlyphDirection = column.Name == sortColumnName
+                ? sortDirection == ListSortDirection.Ascending ? SortOrder.Ascending : SortOrder.Descending
+                : SortOrder.None;
+        }
+    }
+
+    private void AddSortableColumn(string name, string header, float fillWeight, Type? valueType = null, string? format = null)
+    {
+        var column = new DataGridViewTextBoxColumn
+        {
+            Name = name,
+            HeaderText = header,
+            FillWeight = fillWeight,
+            SortMode = DataGridViewColumnSortMode.Programmatic,
+            ValueType = valueType
+        };
+        if (format is not null) column.DefaultCellStyle.Format = format;
+        itemsGrid.Columns.Add(column);
+    }
+
+    private void RefreshFolderFilter()
+    {
+        var current = folderFilterComboBox.SelectedItem as FolderFilterOption;
+        var options = new List<FolderFilterOption>
+        {
+            new("All folders", null, IsAll: true),
+            new("No folder", null, IsNoFolder: true)
+        };
+        options.AddRange(allItems
+            .Select(item => item.Folder?.Trim())
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(folder => folder, StringComparer.CurrentCultureIgnoreCase)
+            .Select(folder => new FolderFilterOption(folder!, folder)));
+
+        refreshingFolderFilter = true;
+        folderFilterComboBox.Items.Clear();
+        folderFilterComboBox.Items.AddRange([.. options]);
+        var preserved = options.FirstOrDefault(option =>
+            option.IsAll == current?.IsAll
+            && option.IsNoFolder == current?.IsNoFolder
+            && string.Equals(option.Folder, current?.Folder, StringComparison.CurrentCultureIgnoreCase));
+        folderFilterComboBox.SelectedItem = preserved ?? options[0];
+        refreshingFolderFilter = false;
     }
 
     private static bool MatchesSearch(VaultItem item, string search) =>
@@ -176,6 +578,9 @@ public sealed class VaultForm : Form
         || Contains(item.Folder, search) || item.Tags.Any(tag => Contains(tag, search));
 
     private static bool Contains(string? value, string search) => value?.Contains(search, StringComparison.CurrentCultureIgnoreCase) == true;
+
+    private static string GetTypeDisplayName(VaultItem item) =>
+        item.Type == VaultItemType.Password ? "Password" : "Recovery codes";
 
     private void AddItem()
     {
@@ -299,13 +704,28 @@ public sealed class VaultForm : Form
     {
         if (vaultService.SensitiveSessionExpiresAt is not { } expiresAt)
         {
-            sensitiveSessionLabel.Text = "Sensitive actions: locked";
+            sensitiveSessionLabel.Text = "Sensitive actions locked";
+            sensitiveSessionDescriptionLabel.Text = "Copy passwords, view, or edit asks for Authenticator.";
+            sensitiveSessionPanel.BackColor = UiTheme.WarningBackground;
+            sensitiveSessionLabel.ForeColor = UiTheme.WarningText;
+            sensitiveSessionDescriptionLabel.ForeColor = UiTheme.WarningText;
             return;
         }
         var remaining = expiresAt - DateTimeOffset.UtcNow;
-        sensitiveSessionLabel.Text = remaining > TimeSpan.Zero
-            ? $"Sensitive actions unlocked: {remaining.Minutes}:{remaining.Seconds:D2}"
-            : "Sensitive actions: locked";
+        if (remaining <= TimeSpan.Zero)
+        {
+            sensitiveSessionLabel.Text = "Sensitive actions locked";
+            sensitiveSessionDescriptionLabel.Text = "Copy passwords, view, or edit asks for Authenticator.";
+            sensitiveSessionPanel.BackColor = UiTheme.WarningBackground;
+            sensitiveSessionLabel.ForeColor = UiTheme.WarningText;
+            sensitiveSessionDescriptionLabel.ForeColor = UiTheme.WarningText;
+            return;
+        }
+        sensitiveSessionLabel.Text = $"Sensitive actions unlocked  {remaining.Minutes}:{remaining.Seconds:D2}";
+        sensitiveSessionDescriptionLabel.Text = "Secret actions are available until the timer expires.";
+        sensitiveSessionPanel.BackColor = UiTheme.SuccessBackground;
+        sensitiveSessionLabel.ForeColor = UiTheme.SuccessText;
+        sensitiveSessionDescriptionLabel.ForeColor = UiTheme.SuccessText;
     }
 
     private void OpenSettings()
@@ -380,6 +800,9 @@ public sealed class VaultForm : Form
         buttons.Controls.Add(restore);
         dialog.Controls.Add(list);
         dialog.Controls.Add(buttons);
+        UiTheme.Apply(dialog);
+        UiTheme.StylePrimaryButton(restore);
+        UiTheme.StyleDangerButton(permanentDelete);
 
         void Reload()
         {
@@ -488,6 +911,8 @@ public sealed class VaultForm : Form
         var close = new Button { Text = "Close", Dock = DockStyle.Bottom, Height = 34, DialogResult = DialogResult.OK };
         dialog.Controls.Add(textBox);
         dialog.Controls.Add(close);
+        UiTheme.Apply(dialog);
+        UiTheme.StylePrimaryButton(close);
         dialog.AcceptButton = close;
         dialog.ShowDialog(this);
     }
@@ -503,21 +928,18 @@ public sealed class VaultForm : Form
     private void UpdateButtonState()
     {
         var selected = TryGetSelectedItem(out var item);
-        editButton.Enabled = selected;
-        deleteButton.Enabled = selected;
         viewSecretButton.Enabled = selected;
         copyUsernameButton.Enabled = selected;
         copyPasswordButton.Enabled = selected && item.Type == VaultItemType.Password;
-        copyTotpButton.Enabled = selected && item.HasTotp;
-        historyButton.Enabled = selected && item.Type == VaultItemType.Password;
+        moreButton.Enabled = selected;
+        editMenuItem.Enabled = selected;
+        deleteMenuItem.Enabled = selected;
+        copyTotpMenuItem.Enabled = selected && item.HasTotp;
+        historyMenuItem.Enabled = selected && item.Type == VaultItemType.Password;
         viewSecretButton.Text = selected && item.Type == VaultItemType.RecoveryCodes ? "View Codes" : "View Password";
-    }
-
-    private static Button CreateToolbarButton(string text, int width, EventHandler handler)
-    {
-        var button = new Button { Text = text, Width = width, Height = 32 };
-        button.Click += handler;
-        return button;
+        selectionStatusLabel.Text = selected
+            ? "1 item selected  -  Press Enter to edit"
+            : "No item selected";
     }
 
     private static void RunVaultAction(Action action)
@@ -536,6 +958,18 @@ public sealed class VaultForm : Form
     private static void ShowError(string message) => MessageBox.Show(message, "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Error);
 
     private sealed record VaultItemRowTag(Guid Id, VaultItemType Type, bool HasTotp);
+
+    private sealed record FolderFilterOption(string DisplayName, string? Folder, bool IsAll = false, bool IsNoFolder = false);
+
+    private sealed record ViewFilterOption(string DisplayName, VaultFilterKind Filter);
+
+    private enum VaultFilterKind
+    {
+        All,
+        Favorites,
+        Passwords,
+        RecoveryCodes
+    }
 
     private sealed record TrashRow(Guid Id, string Title, DateTimeOffset? DeletedAt)
     {

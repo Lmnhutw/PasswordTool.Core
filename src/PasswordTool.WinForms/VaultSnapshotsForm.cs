@@ -16,6 +16,7 @@ public sealed class VaultSnapshotsForm : Form
         ClientSize = new Size(590, 350);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
         foreach (var snapshot in vaultService.GetSnapshots()) snapshots.Items.Add(new SnapshotRow(snapshot));
         var restore = new Button { Text = "Restore selected", Dock = DockStyle.Bottom, Height = 38 };
         restore.Click += Restore_Click;

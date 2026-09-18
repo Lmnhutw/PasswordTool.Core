@@ -4,6 +4,12 @@ The Windows client provides vault unlock, first-launch backup recovery, a Backup
 
 The local Windows interface for the encrypted vault and password-hash utility.
 
+## Visual system
+
+The client uses a shared light WinForms theme with Segoe UI typography, consistent primary/secondary/destructive actions, accessible focus states, and common table styling. The main vault keeps the credential table as the primary surface, groups selected-item actions in a compact command bar, and moves application utilities into the **Tools** menu.
+
+Vault search can be combined with compact item-view and folder dropdown filters. These controls only change the local presentation of the already-open vault; encryption, persistence, sensitive-session authorization, and clipboard behavior remain owned by the existing services. Sensitive actions continue to request the Authenticator only when the user invokes them.
+
 ## UI responsibilities
 
 - First-launch choice between an empty vault and encrypted-backup recovery, followed by new Master Password and Authenticator setup

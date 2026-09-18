@@ -20,6 +20,7 @@ public sealed class BackupRecoveryCenterForm : Form
         BuildInterface();
         RefreshHealth();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     public bool RequiresVaultLock { get; private set; }

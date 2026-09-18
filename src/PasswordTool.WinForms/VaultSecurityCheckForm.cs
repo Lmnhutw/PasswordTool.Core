@@ -14,6 +14,7 @@ public sealed class VaultSecurityCheckForm : Form
         ClientSize = new Size(900, 460);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
 
         var rows = findings.Select(finding => new FindingRow(
             finding.ItemId,

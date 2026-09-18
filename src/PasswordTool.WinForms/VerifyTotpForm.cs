@@ -10,6 +10,7 @@ public sealed class VerifyTotpForm : Form
         this.verifyCode = verifyCode;
         BuildInterface(title, prompt);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     public string Code { get; private set; } = string.Empty;

@@ -28,6 +28,7 @@ internal sealed class PasswordGeneratorForm : Form
         ClientSize = new Size(660, 320);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
         BuildInterface();
         Generate();
     }

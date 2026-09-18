@@ -20,6 +20,7 @@ public sealed class ChangeMasterPasswordForm : Form
         ClientSize = new Size(540, 235);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 5 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 175));

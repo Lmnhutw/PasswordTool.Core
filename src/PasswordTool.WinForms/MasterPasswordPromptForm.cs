@@ -14,6 +14,7 @@ public sealed class MasterPasswordPromptForm : Form
         ClientSize = new Size(500, 150);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
 
         var messageLabel = new Label { Text = message, Dock = DockStyle.Top, Height = 42 };
         passwordTextBox.Dock = DockStyle.Top;

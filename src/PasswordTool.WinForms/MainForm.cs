@@ -19,6 +19,7 @@ public partial class MainForm : Form
         vaultService = new VaultService(storageService, encryptionService, totpService);
         InitializeComponent();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     private void BuildInterface()

@@ -20,6 +20,7 @@ public sealed class VaultSettingsForm : Form
         this.vaultService = vaultService;
         BuildInterface();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     private void BuildInterface()

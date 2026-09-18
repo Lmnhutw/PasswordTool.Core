@@ -39,6 +39,7 @@ public sealed class VaultItemEditorForm : Form
         BuildInterface();
         LoadItem();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     public VaultItem Item { get; private set; }

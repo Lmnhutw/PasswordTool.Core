@@ -17,6 +17,7 @@ internal sealed class BackupPassphraseForm : Form
         ClientSize = new Size(540, requireConfirmation ? 250 : 210);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
         BuildInterface();
     }
 

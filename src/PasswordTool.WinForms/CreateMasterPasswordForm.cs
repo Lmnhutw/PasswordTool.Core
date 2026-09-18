@@ -12,6 +12,7 @@ public sealed class CreateMasterPasswordForm : Form
     {
         BuildInterface();
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
     }
 
     public string MasterPassword { get; private set; } = string.Empty;

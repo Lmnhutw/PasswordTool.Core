@@ -14,6 +14,7 @@ internal sealed class VaultImportReviewForm : Form
         ClientSize = new Size(700, 470);
         Padding = new Padding(16);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));

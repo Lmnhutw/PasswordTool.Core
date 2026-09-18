@@ -12,6 +12,7 @@ public sealed class FirstLaunchChoiceForm : Form
         ClientSize = new Size(560, 235);
         Padding = new Padding(20);
         FormIconService.Apply(this);
+        UiTheme.Apply(this);
 
         var explanation = new Label
         {
