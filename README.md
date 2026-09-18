@@ -150,9 +150,19 @@ pwsh .\scripts\Publish-WindowsRelease.ps1 -Version 1.0.0
 
 The script writes a non-overwriting versioned directory under `artifacts\releases\1.0.0`. It validates the published payload, excludes vault and source inputs, produces a portable ZIP, and writes SHA-256 checksums, a public static release manifest, and an explicit `release-status.txt`. Do not distribute a release whose status says `UNSIGNED` as a production-signed release.
 
+Qualify the newly generated, finalized directory without modifying it:
+
+```powershell
+pwsh .\scripts\Test-ReleasePipeline.ps1
+pwsh .\scripts\Test-ReleaseQualification.ps1
+pwsh .\scripts\Invoke-ReleaseQualification.ps1 -ReleaseDirectory .\artifacts\releases\1.0.0
+```
+
+Qualification independently re-hashes the payload and distribution artifacts, compares ZIP entries with the published files, enforces the public manifest schema, rejects API/source/test/vault/secret content, and verifies the offline release and installer source contracts. An unsigned developer release, unavailable signing or installer tools, and pending manual installer/application smoke checks are reported as limitations, not as production release readiness.
+
 An Inno Setup template is included for a per-user x64 installer. When `ISCC.exe` is already installed, the release script compiles it and adds the installer to the checksums. When it is unavailable, the script intentionally produces only the portable ZIP and leaves the documented installer handoff; it never downloads a compiler or packaging dependency.
 
-For signing configuration, checksum/signature verification, installer data-retention behavior, manual updates, and the operator checklist, read [docs/release-operations.md](docs/release-operations.md).
+For signing configuration, checksum/signature verification, qualification outcomes, installer data-retention scenarios, the controlled-machine smoke checklist, manual updates, and the operator checklist, read [docs/release-operations.md](docs/release-operations.md).
 
 ## Repository layout
 

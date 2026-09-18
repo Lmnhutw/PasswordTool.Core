@@ -79,6 +79,10 @@ Use random salts per secure hash and constant-time comparison for verification. 
 
 `PasswordTool.Api` currently implements `/hash`, `/verify`, `/inspect`, and `/algorithms` below `/api/password`. It does not expose vault operations. HTTPS redirection is configured, but authentication, authorization, rate limiting, request-size limits, audit policy, and an educational-algorithm block are not yet implemented. It must remain local/trusted-development-only until those controls are explicitly added.
 
+## Release qualification boundary
+
+The Windows release path publishes only `PasswordTool.WinForms` plus `PasswordTool.Core`; `PasswordTool.Api` is never a desktop artifact. Phase 5 qualification is implemented as read-only PowerShell validation around the finalized Phase 4 directory. It recalculates hashes, compares the portable ZIP with the publish payload, enforces a public-only manifest, independently verifies any signed claim, and checks the existing offline/build/installer source contracts. It does not add runtime code, networking, storage, or a release service, and it never establishes release readiness when controlled-machine manual scenarios remain incomplete.
+
 ## Security rules for future changes
 
 - Never persist, return, or log raw passwords, Master Passwords, recovery codes, TOTP secrets, or unprotected encryption keys.
