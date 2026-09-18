@@ -186,18 +186,25 @@ public sealed class VaultForm : Form
 
     private void EditSelectedItem()
     {
-        if (!TryGetSelectedItem(out var selected)) return;
+        if (TryGetSelectedItem(out var selected)) EditItem(selected.Id);
+    }
+
+    private bool EditItem(Guid id)
+    {
         var code = RequestSensitiveAuthorization("Edit Vault Item", "Confirm with the PasswordTool Authenticator code before editing this item.");
-        if (code is null) return;
+        if (code is null) return false;
+        var completed = false;
         RunVaultAction(() =>
         {
-            var item = vaultService.GetItemForEditing(selected.Id, code);
+            var item = vaultService.GetItemForEditing(id, code);
             using var editor = new VaultItemEditorForm(item);
             if (editor.ShowDialog(this) != DialogResult.OK) return;
-            if (editor.DeleteRequested) vaultService.DeleteItem(selected.Id);
+            if (editor.DeleteRequested) vaultService.DeleteItem(id);
             else vaultService.UpdateItem(editor.Item);
             LoadItems();
+            completed = true;
         });
+        return completed;
     }
 
     private void DeleteSelectedItem()
@@ -342,8 +349,14 @@ public sealed class VaultForm : Form
         if (code is null) return;
         RunVaultAction(() =>
         {
-            using var form = new VaultSecurityCheckForm(vaultService.GetSecurityFindings(code));
-            form.ShowDialog(this);
+            while (true)
+            {
+                using var form = new VaultSecurityCheckForm(vaultService.GetSecurityFindings(code));
+                if (form.ShowDialog(this) != DialogResult.OK || form.SelectedItemId is not { } itemId) return;
+                if (!EditItem(itemId)) return;
+                code = RequestSensitiveAuthorization("Local Security Check", "Confirm before refreshing the local Security Check.");
+                if (code is null) return;
+            }
         });
     }
 

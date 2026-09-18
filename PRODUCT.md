@@ -16,6 +16,7 @@ For individuals who want to keep personal credentials, website TOTP secrets, and
 - **Deliberate sensitive actions:** require confirmation for sign-in preference changes, revealing secrets, and backup export/import.
 - **Recoverable without an account:** make encrypted external backup creation, verification, and first-launch recovery understandable without implying that local snapshots protect against disk loss.
 - **Practical daily use:** make search, password generation, short-lived copy actions, and common CSV migration easy without adding an online service.
+- **Actionable local review:** Security Check findings must remain secret-free, distinguish general item edits from password-age changes, and route remediation through the existing protected editor.
 - **Familiar desktop behavior:** preserve keyboard navigation, visible focus, and standard Windows control patterns.
 - **No colour-only meaning:** pair status colour with concise visible text or an icon.
 

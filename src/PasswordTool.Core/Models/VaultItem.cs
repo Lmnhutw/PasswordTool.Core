@@ -47,4 +47,7 @@ public sealed class VaultItem
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>When the current password became active; null is supported for legacy vaults.</summary>
+    public DateTimeOffset? PasswordChangedAt { get; set; }
 }

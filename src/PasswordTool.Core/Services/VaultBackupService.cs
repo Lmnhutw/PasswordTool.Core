@@ -230,7 +230,8 @@ public sealed class VaultBackupService
             {
                 if (!string.IsNullOrEmpty(item.Password)
                     || !string.IsNullOrEmpty(item.TotpSecretBase32)
-                    || item.PasswordHistory.Count != 0)
+                    || item.PasswordHistory.Count != 0
+                    || item.PasswordChangedAt.HasValue)
                 {
                     throw new InvalidDataException($"Recovery-code item '{item.Title}' contains password or TOTP data.");
                 }
@@ -333,6 +334,7 @@ public sealed class VaultBackupService
             && left.DeletedAt == right.DeletedAt
             && left.CreatedAt == right.CreatedAt
             && left.UpdatedAt == right.UpdatedAt
+            && left.PasswordChangedAt == right.PasswordChangedAt
             && left.RecoveryCodes.SequenceEqual(right.RecoveryCodes, StringComparer.Ordinal)
             && left.Tags.SequenceEqual(right.Tags, StringComparer.Ordinal);
     }
@@ -363,7 +365,8 @@ public sealed class VaultBackupService
             IsDeleted = item.IsDeleted,
             DeletedAt = item.DeletedAt,
             CreatedAt = item.CreatedAt,
-            UpdatedAt = item.UpdatedAt
+            UpdatedAt = item.UpdatedAt,
+            PasswordChangedAt = item.PasswordChangedAt
         };
     }
 

@@ -304,7 +304,8 @@ public sealed class VaultItemEditorForm : Form
         Folder = item.Folder,
         Tags = [.. (item.Tags ?? [])],
         CreatedAt = item.CreatedAt,
-        UpdatedAt = item.UpdatedAt
+        UpdatedAt = item.UpdatedAt,
+        PasswordChangedAt = item.PasswordChangedAt
     };
 
     private static Label CreateLabel(string text) => new() { Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };

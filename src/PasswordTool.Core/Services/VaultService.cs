@@ -240,6 +240,7 @@ public sealed class VaultService : IDisposable
 
         var recoveredItems = backupService.ReadBackup(request.BackupJson, request.BackupPassphrase);
         var now = utcNow();
+        NormalizeItems(recoveredItems, now);
         var config = masterPasswordService.CreateConfig(request.NewMasterPassword, request.NewTotpSecretBase32);
         config.CreatedAt = now;
         config.UpdatedAt = now;
@@ -293,7 +294,7 @@ public sealed class VaultService : IDisposable
             var encryptedVaultJson = storageService.LoadVaultPayload();
             var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, derivedKey);
             decryptedVault.Items ??= [];
-            NormalizeItems(decryptedVault.Items);
+            NormalizeItems(decryptedVault.Items, utcNow());
 
             encryptionKey = derivedKey;
             totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret)
@@ -370,7 +371,7 @@ public sealed class VaultService : IDisposable
             var encryptedVaultJson = storageService.LoadVaultPayload();
             var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, trustedKey);
             decryptedVault.Items ??= [];
-            NormalizeItems(decryptedVault.Items);
+            NormalizeItems(decryptedVault.Items, utcNow());
 
             encryptionKey = trustedKey;
             trustedKey = null;
@@ -748,7 +749,8 @@ public sealed class VaultService : IDisposable
             .Where(group => group.Count() > 1)
             .SelectMany(group => group.Select(item => item.Id))
             .ToHashSet();
-        var oldBefore = utcNow().AddDays(-365);
+        var now = utcNow().ToUniversalTime();
+        var oldBefore = now.AddDays(-365);
         var findings = new List<VaultSecurityFinding>();
 
         foreach (var item in activePasswordItems)
@@ -764,14 +766,22 @@ public sealed class VaultService : IDisposable
                 findings.Add(new(item.Id, item.Title, VaultSecurityFindingType.ReusedPassword,
                     "This password is also used by another active item."));
             }
-            if (item.UpdatedAt < oldBefore)
+            var passwordChangedAt = PasswordLifecycle.GetEffectivePasswordChangedAt(item, now);
+            if (passwordChangedAt <= oldBefore)
             {
                 findings.Add(new(item.Id, item.Title, VaultSecurityFindingType.OldPassword,
-                    "This password has not been updated for more than one year."));
+                    "Change this password because it is at least one year old.")
+                {
+                    PasswordChangedAt = passwordChangedAt
+                });
             }
         }
 
-        return findings;
+        return findings
+            .OrderBy(finding => finding.Type)
+            .ThenBy(finding => finding.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(finding => finding.ItemId)
+            .ToList();
     }
 
     public string GetUsername(Guid id)
@@ -849,6 +859,7 @@ public sealed class VaultService : IDisposable
         RequireSensitiveTotp(totpCode);
 
         var importedItems = backupService.ReadBackup(backupJson, passphrase);
+        NormalizeItems(importedItems, utcNow());
         var plan = backupService.CreateImportPlan(importedItems, vaultData!.Items);
         var newIds = plan.Items
             .Where(item => item.Status == VaultBackupImportStatus.New)
@@ -911,6 +922,7 @@ public sealed class VaultService : IDisposable
             item.Id = Guid.NewGuid();
             item.CreatedAt = now;
             item.UpdatedAt = now;
+            item.PasswordChangedAt = now;
             ValidateVaultItem(item);
         }
 
@@ -938,6 +950,7 @@ public sealed class VaultService : IDisposable
         newItem.Id = Guid.NewGuid();
         newItem.CreatedAt = now;
         newItem.UpdatedAt = now;
+        newItem.PasswordChangedAt = newItem.Type == VaultItemType.Password ? now : null;
 
         vaultData!.Items.Add(newItem);
         SaveVault();
@@ -948,17 +961,27 @@ public sealed class VaultService : IDisposable
     {
         ThrowIfDisposed();
         EnsureOpen();
+        if (item.Type == VaultItemType.RecoveryCodes)
+        {
+            item.Password = string.Empty;
+            item.TotpSecretBase32 = string.Empty;
+            item.PasswordHistory = [];
+            item.PasswordChangedAt = null;
+        }
         ValidateVaultItem(item);
 
         var existing = FindItem(item.Id);
-        if (existing.Type == VaultItemType.Password
-            && !string.IsNullOrEmpty(existing.Password)
-            && !string.Equals(existing.Password, item.Password, StringComparison.Ordinal))
+        var now = utcNow();
+        var wasPassword = existing.Type == VaultItemType.Password;
+        var changesPassword = wasPassword
+            && item.Type == VaultItemType.Password
+            && !string.Equals(existing.Password, item.Password, StringComparison.Ordinal);
+        if (changesPassword)
         {
             existing.PasswordHistory.Insert(0, new PasswordHistoryEntry
             {
                 Password = existing.Password,
-                ChangedAt = utcNow()
+                ChangedAt = now
             });
             existing.PasswordHistory = existing.PasswordHistory.Take(10).ToList();
         }
@@ -975,7 +998,16 @@ public sealed class VaultService : IDisposable
         existing.IsFavorite = item.IsFavorite;
         existing.Folder = item.Folder.Trim();
         existing.Tags = [.. item.Tags];
-        existing.UpdatedAt = utcNow();
+        existing.UpdatedAt = now;
+        if (item.Type == VaultItemType.RecoveryCodes)
+        {
+            existing.PasswordHistory = [];
+            existing.PasswordChangedAt = null;
+        }
+        else if (!wasPassword || changesPassword)
+        {
+            existing.PasswordChangedAt = now;
+        }
 
         SaveVault();
     }
@@ -1282,7 +1314,8 @@ public sealed class VaultService : IDisposable
             IsDeleted = item.IsDeleted,
             DeletedAt = item.DeletedAt,
             CreatedAt = item.CreatedAt,
-            UpdatedAt = item.UpdatedAt
+            UpdatedAt = item.UpdatedAt,
+            PasswordChangedAt = item.PasswordChangedAt
         };
     }
 
@@ -1304,13 +1337,21 @@ public sealed class VaultService : IDisposable
         return clone;
     }
 
-    private static void NormalizeItems(IEnumerable<VaultItem> items)
+    private static void NormalizeItems(IEnumerable<VaultItem> items, DateTimeOffset utcNow)
     {
         foreach (var item in items)
         {
             item.RecoveryCodes ??= [];
             item.Tags ??= [];
             item.PasswordHistory ??= [];
+            if (item.Type == VaultItemType.RecoveryCodes)
+            {
+                item.PasswordChangedAt = null;
+            }
+            else if (item.PasswordChangedAt is not { } changedAt || changedAt.ToUniversalTime() > utcNow.ToUniversalTime())
+            {
+                item.PasswordChangedAt = PasswordLifecycle.GetEffectivePasswordChangedAt(item, utcNow);
+            }
         }
     }
 }

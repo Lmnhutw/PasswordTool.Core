@@ -16,6 +16,7 @@ The reusable domain and security layer for PasswordTool. UI and HTTP projects de
 - Cryptographically secure password/passphrase generation and strength estimates
 - Bounded common-format CSV parsing and duplicate-aware import planning
 - Password hash implementations, inspection, registry metadata, and constant-time comparisons
+- Password lifecycle metadata and local, secret-free weak/reused/old Security Check analysis
 
 ## Storage and sign-in contract
 
@@ -34,4 +35,5 @@ File names and Hidden/System attributes are obfuscation only. The security bound
 - Keep UI and API layers thin. They may choose dialogs, HTTP status codes, and DTOs, but Core owns cryptography and domain validation.
 - Maintain backward compatibility for vault items that predate recovery codes: their missing `Type` defaults to `Password`.
 - New optional item metadata must keep safe defaults so older encrypted vault and backup payloads continue to deserialize.
+- UpdatedAt is not password age. PasswordChangedAt is nullable for legacy payloads and is resolved in Core from valid history, UpdatedAt, then CreatedAt; future dates are ignored. The 365-day Security Check threshold is inclusive and findings never contain a secret.
 - Older configs without timeout fields default to a 10-minute inactivity lock and five-minute sensitive-action session. Never accept persisted or requested values outside Core's supported ranges.
