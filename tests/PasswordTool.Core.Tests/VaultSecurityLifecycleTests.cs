@@ -45,7 +45,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
     }
 
     [Fact]
-    public void Changing_master_password_reencrypts_the_vault_and_invalidates_the_old_password()
+    public void Changing_master_password_rewraps_the_vault_key_and_invalidates_the_old_password()
     {
         var storage = new VaultStorageService(tempDirectory);
         var totp = new TotpService();
@@ -54,7 +54,9 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
         vault.AddItem(new VaultItem { Title = "Email", Password = "account secret" });
 
+        var vaultCiphertext = File.ReadAllText(storage.VaultPath);
         Assert.True(vault.TryChangeMasterPassword("correct horse battery staple", "a completely different master password", out var error), error);
+        Assert.Equal(vaultCiphertext, File.ReadAllText(storage.VaultPath));
         vault.ClearSession();
         Assert.False(vault.TryUnlockMasterPassword("correct horse battery staple", out _));
         Assert.True(vault.TryUnlockMasterPassword("a completely different master password", out error), error);
@@ -99,7 +101,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
 
         using var vault = new VaultService(storage, encryption, totp, utcNow: () => now);
         Assert.True(vault.TryUnlockMasterPassword(password, out var unlockError), unlockError);
-        Assert.True(vault.NeedsKdfUpgrade);
+        Assert.False(vault.NeedsKdfUpgrade); // Automatic legacy migration also upgrades the KDF.
         Assert.True(vault.TryUpgradeKdf(password, out var upgradeError), upgradeError);
 
         var upgraded = storage.LoadConfig();
@@ -182,7 +184,9 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         const string master = "correct horse battery staple";
         vault.InitializeNewVault(master, oldSecret, oldCode);
 
+        var vaultCiphertext = File.ReadAllText(storage.VaultPath);
         Assert.True(vault.TryResetAuthenticator(master, newSecret, newCode, out var error), error);
+        Assert.Equal(vaultCiphertext, File.ReadAllText(storage.VaultPath));
         vault.ClearSession();
         Assert.False(vault.TryUnlockWithGoogleAuthenticator(oldCode, out _));
         Assert.True(vault.TryUnlockWithGoogleAuthenticator(newCode, out error), error);

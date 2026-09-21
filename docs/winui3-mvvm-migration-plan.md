@@ -2,7 +2,7 @@
 
 ## 1. Kết luận và quyết định đã khóa
 
-- Giữ nguyên `PasswordTool.Core`, định dạng `.config`/`.storage`, mã hóa, backup và API; chỉ thay presentation client.
+- Giữ nguyên contract `PasswordTool.Core` v3, encrypted backup v1 và API; WinUI phải dùng envelope-encryption/migration behavior hiện hành thay vì đóng băng định dạng `.config`/`.storage` cũ.
 - Thay WinForms bằng WinUI trong một lần cutover. Không phát hành phiên bản hybrid; WinForms chỉ được giữ làm behavioral reference đến khi WinUI đạt parity rồi mới xóa.
 - Dùng WinUI 3, Windows App SDK stable `2.4.0`, .NET 10, `CommunityToolkit.Mvvm 8.4.2` và `Microsoft.Extensions.DependencyInjection 10.0.12`. WinUI/Windows App SDK hỗ trợ từ Windows 10 1809; project target SDK mới nhưng khai báo minimum `10.0.17763.0`. Xem [Windows App SDK](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/) và [MVVM Toolkit](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/).
 - Giữ kênh phát hành ZIP + Inno Setup: unpackaged, x64, self-contained, offline, single-file EXE có extraction lúc chạy lần đầu. Cấu hình bắt buộc gồm `WindowsPackageType=None`, `WindowsAppSDKSelfContained`, `SelfContained`, `EnableMsixTooling`, `IncludeAllContentForSelfExtract` và `PublishSingleFile`. Xem [hướng dẫn unpackaged WinUI](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app).
@@ -42,7 +42,7 @@
 - `IFilePickerService`: open/save path bằng `Microsoft.Windows.Storage.Pickers` gắn với `AppWindow.Id`.
 - `ISensitiveClipboardService`: copy giá trị, clear sau 30 giây chỉ khi clipboard vẫn chứa chính giá trị đó, và clear khi session/window đóng.
 - `ISystemLockMonitor`: phát `LockRequired` khi idle timeout, Windows lock/disconnect, suspend hoặc resume.
-- Không thay đổi public Core models, persisted JSON schema, cryptographic parameters hoặc API contracts.
+- Không tự thay đổi public Core models, persisted JSON schema, cryptographic parameters hoặc API contracts từ presentation layer; WinUI consume `VaultUnlockResult` và các Core workflows hiện hành.
 
 ## 3. UX và hành vi bắt buộc
 
@@ -86,7 +86,7 @@
 
 - Port first launch, recovery, Authenticator setup và unlock.
 - Port inactivity polling, Windows session/power events, explicit lock và session cleanup.
-- Chứng minh WinUI mở được vault hiện có do WinForms tạo mà không migration dữ liệu.
+- Chứng minh WinUI mở được vault v3 và vault v1/v2 do WinForms cũ tạo; legacy vault chỉ migrate atomically sau Master Password unlock và phải hiển thị cảnh báo khi migration deferred.
 
 ### Phase 4 — Vault workspace
 
@@ -117,7 +117,7 @@
 
 ### Security compatibility
 
-- Vault WinForms hiện có unlock được bằng WinUI và mutation vẫn đọc lại được.
+- Vault v3 hiện có unlock được bằng WinUI; vault v1/v2 unlock bằng Master Password, migrate atomically sang v3, rồi mutation vẫn đọc lại được.
 - New vault, legacy PBKDF2 upgrade, Master Password change, TOTP trusted unlock, backup export/import/recovery, CSV import và snapshot restore giữ nguyên semantics.
 - Clipboard tự clear sau 30 giây khi unchanged; không clear dữ liệu clipboard mới của người dùng.
 - Session lock/disconnect/suspend/resume/idle đều đưa app về Unlock và clear session.

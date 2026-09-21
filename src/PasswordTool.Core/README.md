@@ -6,7 +6,7 @@ The reusable domain and security layer for PasswordTool. UI and HTTP projects de
 
 ## Responsibilities
 
-- Master Password validation, current Argon2id vault-key derivation, and legacy PBKDF2 compatibility
+- Master Password validation, Argon2id KEK derivation, AES-GCM DEK wrapping, and legacy PBKDF2 compatibility
 - AES-256-GCM encryption/decryption and encrypted local-vault persistence
 - TOTP generation/verification and Windows-DPAPI trusted-unlock tokens
 - Master-Password-authorized, range-validated inactivity and sensitive-action timeout settings
@@ -20,11 +20,11 @@ The reusable domain and security layer for PasswordTool. UI and HTTP projects de
 
 ## Storage and sign-in contract
 
-For a new vault, `.config` contains KDF metadata and an AES-GCM-encrypted TOTP secret; `.storage` contains the encrypted vault. A successful Master Password unlock can create `.trusted-unlock`: a one-day Windows-DPAPI-CurrentUser protection of the vault key, bound to a configuration fingerprint. A TOTP code plus that token may unlock the vault only for the same Windows user profile.
+For a new v3 vault, `.config` contains a versioned Master key slot (Argon2id metadata plus the AES-GCM-wrapped random DEK) and a purpose-bound, DEK-encrypted Authenticator secret; `.storage` is encrypted by the DEK. `.trusted-unlock` contains separate one-day DPAPI-CurrentUser blobs for the Authenticator secret and DEK, bound to a configuration fingerprint. The app opens the Authenticator blob and verifies TOTP before opening the DEK blob. TOTP is an application gate, not an independent cryptographic factor against a process already acting as the same Windows user.
 
-Recovery accepts only completely uninitialized storage. It validates the encrypted backup and all new credentials before a single paired state commit, then creates the trusted token. The recovered config uses a fresh Argon2id salt and new Authenticator secret. Nullable backup-health timestamps remain compatible with older config files; no destination path or backup passphrase is persisted.
+Recovery accepts only completely uninitialized storage. It validates the encrypted backup and all new credentials before a single paired state commit, then creates the trusted token. The recovered config uses a fresh random DEK, Argon2id salt, Master key slot, and Authenticator secret. Legacy v1/v2 vaults migrate only after successful Master Password unlock; staged v3 state is read back and cryptographically verified before the old pair is replaced. Nullable backup-health timestamps remain compatible with older config files; no destination path or backup passphrase is persisted.
 
-File names and Hidden/System attributes are obfuscation only. The security boundary is the Master Password-derived key, authenticated encryption, DPAPI scope, and the Windows user account.
+File names and Hidden/System attributes are obfuscation only. The security boundary is the Master Password-derived KEK, wrapped random DEK, authenticated encryption, DPAPI scope, and the Windows user account.
 
 ## Change rules
 

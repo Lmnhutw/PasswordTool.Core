@@ -21,6 +21,7 @@ public sealed class VaultService : IDisposable
     private string? totpSecretBase32;
     private VaultData? vaultData;
     private bool isVaultOpen;
+    private bool encryptionUsesEnvelope;
     private DateTimeOffset? sensitiveSessionExpiresAt;
     private bool disposed;
 
@@ -82,7 +83,7 @@ public sealed class VaultService : IDisposable
             try
             {
                 var config = storageService.LoadConfig();
-                if (string.IsNullOrWhiteSpace(config.EncryptedTotpSecret) || !storageService.HasTrustedUnlockToken)
+                if (config.Version < 3 || config.MasterKeySlot is null || string.IsNullOrWhiteSpace(config.EncryptedTotpSecret) || !storageService.HasTrustedUnlockToken)
                 {
                     return false;
                 }
@@ -157,37 +158,32 @@ public sealed class VaultService : IDisposable
     public void InitializeNewVault(string masterPassword, string totpSecretBase32, string confirmationTotpCode)
     {
         ThrowIfDisposed();
-
         if (storageService.HasConfig || storageService.HasVault)
-        {
             throw new InvalidOperationException("PasswordTool storage already exists.");
-        }
-
         if (!totpService.IsSecretValid(totpSecretBase32))
-        {
             throw new ArgumentException("The generated TOTP secret is invalid.", nameof(totpSecretBase32));
-        }
-
         if (!totpService.VerifyCode(totpSecretBase32, confirmationTotpCode))
-        {
             throw new UnauthorizedAccessException("Authenticator setup could not be verified.");
+
+        var vaultKey = RandomNumberGenerator.GetBytes(MasterPasswordService.DefaultKeySizeBytes);
+        try
+        {
+            var config = masterPasswordService.CreateEnvelopeConfig(masterPassword, totpSecretBase32, vaultKey);
+            var data = new VaultData();
+            var payload = encryptionService.EncryptObject(data, vaultKey, MasterPasswordService.VaultContext);
+            storageService.SaveState(config, payload);
+
+            ClearSession();
+            encryptionKey = vaultKey;
+            vaultKey = [];
+            encryptionUsesEnvelope = true;
+            this.totpSecretBase32 = totpSecretBase32;
+            vaultData = data;
+            isVaultOpen = true;
+            SaveTrustedUnlockToken(config);
         }
-
-        var config = masterPasswordService.CreateConfig(masterPassword, totpSecretBase32);
-        var key = masterPasswordService.DeriveKey(masterPassword, config);
-
-        ClearSession();
-
-        encryptionKey = key;
-        this.totpSecretBase32 = totpSecretBase32;
-        vaultData = new VaultData();
-        isVaultOpen = true;
-
-        storageService.SaveConfig(config);
-        SaveVault();
-        SaveTrustedUnlockToken(config);
+        finally { if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey); }
     }
-
     public VaultBackupInspection InspectBackupJson(string backupJson, string passphrase)
     {
         ThrowIfDisposed();
@@ -224,109 +220,109 @@ public sealed class VaultService : IDisposable
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(request);
         if (storageService.HasConfig || storageService.HasVault)
-        {
             throw new InvalidOperationException("Recovery is available only when no PasswordTool storage exists.");
-        }
 
         MasterPasswordService.ValidateNewMasterPassword(request.NewMasterPassword);
         if (!totpService.IsSecretValid(request.NewTotpSecretBase32))
-        {
             throw new ArgumentException("The generated TOTP secret is invalid.", nameof(request));
-        }
         if (!totpService.VerifyCode(request.NewTotpSecretBase32, request.TotpConfirmationCode))
-        {
             throw new UnauthorizedAccessException("Authenticator setup could not be verified.");
-        }
 
         var recoveredItems = backupService.ReadBackup(request.BackupJson, request.BackupPassphrase);
         var now = utcNow();
         NormalizeItems(recoveredItems, now);
-        var config = masterPasswordService.CreateConfig(request.NewMasterPassword, request.NewTotpSecretBase32);
-        config.CreatedAt = now;
-        config.UpdatedAt = now;
-        config.LastVerifiedBackupAt = now;
-        var key = masterPasswordService.DeriveKey(request.NewMasterPassword, config);
+        var vaultKey = RandomNumberGenerator.GetBytes(MasterPasswordService.DefaultKeySizeBytes);
         try
         {
-            var recoveredVault = new VaultData
-            {
-                Items = recoveredItems.Select(item => Clone(item, includePassword: true)).ToList()
-            };
-            var encryptedVaultJson = encryptionService.EncryptObject(recoveredVault, key);
-            storageService.SaveState(config, encryptedVaultJson);
+            var config = masterPasswordService.CreateEnvelopeConfig(request.NewMasterPassword, request.NewTotpSecretBase32, vaultKey);
+            config.CreatedAt = now;
+            config.UpdatedAt = now;
+            config.LastVerifiedBackupAt = now;
+            var recoveredVault = new VaultData { Items = recoveredItems.Select(item => Clone(item, includePassword: true)).ToList() };
+            var payload = encryptionService.EncryptObject(recoveredVault, vaultKey, MasterPasswordService.VaultContext);
+            storageService.SaveState(config, payload);
 
             ClearSession();
-            encryptionKey = key;
-            key = [];
+            encryptionKey = vaultKey;
+            vaultKey = [];
+            encryptionUsesEnvelope = true;
             totpSecretBase32 = request.NewTotpSecretBase32;
             vaultData = recoveredVault;
             isVaultOpen = true;
             SaveTrustedUnlockToken(config);
         }
-        finally
-        {
-            if (key.Length > 0)
-            {
-                CryptographicOperations.ZeroMemory(key);
-            }
-        }
+        finally { if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey); }
+    }
+    public bool TryUnlockMasterPassword(string masterPassword, out string errorMessage)
+    {
+        var result = UnlockWithMasterPassword(masterPassword);
+        errorMessage = result.Success ? string.Empty : result.Message;
+        return result.Success;
     }
 
-    public bool TryUnlockMasterPassword(string masterPassword, out string errorMessage)
+    public VaultUnlockResult UnlockWithMasterPassword(string masterPassword)
     {
         ThrowIfDisposed();
         ClearSession();
-        errorMessage = string.Empty;
-
+        byte[]? unlockedKey = null;
         try
         {
             var config = storageService.LoadConfig();
-            if (!masterPasswordService.TryUnlockConfig(
-                masterPassword,
-                config,
-                out var derivedKey,
-                out var decryptedTotpSecret))
-            {
-                errorMessage = "The Master Password is incorrect.";
-                return false;
-            }
+            if (!masterPasswordService.TryUnlockConfig(masterPassword, config, out unlockedKey, out var decryptedTotpSecret))
+                return new VaultUnlockResult(VaultUnlockStatus.Failed, "The Master Password is incorrect.");
 
             var encryptedVaultJson = storageService.LoadVaultPayload();
-            var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, derivedKey);
+            var decryptedVault = config.Version >= 3
+                ? encryptionService.DecryptObject<VaultData>(encryptedVaultJson, unlockedKey, MasterPasswordService.VaultContext)
+                : encryptionService.DecryptObject<VaultData>(encryptedVaultJson, unlockedKey);
             decryptedVault.Items ??= [];
             NormalizeItems(decryptedVault.Items, utcNow());
 
-            encryptionKey = derivedKey;
-            totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret)
-                ? null
-                : decryptedTotpSecret;
+            var status = VaultUnlockStatus.Unlocked;
+            var message = string.Empty;
+            if (config.Version < 3)
+            {
+                if (TryMigrateLegacyVault(masterPassword, config, decryptedVault, decryptedTotpSecret,
+                    out var migratedConfig, out var migratedKey))
+                {
+                    CryptographicOperations.ZeroMemory(unlockedKey);
+                    unlockedKey = migratedKey;
+                    config = migratedConfig;
+                    status = VaultUnlockStatus.UnlockedAndMigrated;
+                }
+                else
+                {
+                    status = VaultUnlockStatus.UnlockedMigrationDeferred;
+                    message = "The vault opened, but its security format could not be upgraded. The original files were preserved; sign in with the Master Password again to retry.";
+                }
+            }
+
+            encryptionKey = unlockedKey;
+            unlockedKey = null;
+            encryptionUsesEnvelope = config.Version >= 3;
+            totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret) ? null : decryptedTotpSecret;
             vaultData = decryptedVault;
             isVaultOpen = true;
             PurgeExpiredTrash();
-            SaveTrustedUnlockToken(config);
-            return true;
+            if (encryptionUsesEnvelope) SaveTrustedUnlockToken(config);
+            return new VaultUnlockResult(status, message);
         }
-        catch (Exception ex) when (ex is IOException
-            or UnauthorizedAccessException
-            or InvalidOperationException
-            or CryptographicException
-            or FormatException
-            or PlatformNotSupportedException
-            or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or CryptographicException or FormatException or PlatformNotSupportedException or System.Text.Json.JsonException)
         {
             ClearSession();
-            errorMessage = "The Master Password is incorrect, or PasswordTool storage could not be opened.";
-            return false;
+            return new VaultUnlockResult(VaultUnlockStatus.Failed,
+                "The Master Password is incorrect, or PasswordTool storage could not be opened.");
         }
+        finally { if (unlockedKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(unlockedKey); }
     }
-
     public bool TryUnlockWithGoogleAuthenticator(string code, out string errorMessage)
     {
         ThrowIfDisposed();
         ClearSession();
         errorMessage = string.Empty;
         byte[]? trustedKey = null;
-
+        byte[]? trustedAuthenticatorSecret = null;
         if (string.IsNullOrWhiteSpace(code))
         {
             errorMessage = "Google Authenticator code is required.";
@@ -336,57 +332,54 @@ public sealed class VaultService : IDisposable
         try
         {
             var config = storageService.LoadConfig();
-            if (string.IsNullOrWhiteSpace(config.EncryptedTotpSecret))
+            if (config.Version < 3 || config.MasterKeySlot is null)
             {
-                errorMessage = "Google Authenticator login is not configured for this vault.";
+                errorMessage = "Enter the Master Password once to upgrade this vault before using trusted unlock.";
                 return false;
             }
-
-            if (!storageService.HasTrustedUnlockToken)
+            if (string.IsNullOrWhiteSpace(config.EncryptedTotpSecret) || !storageService.HasTrustedUnlockToken)
             {
                 errorMessage = "Enter the Master Password to create a 1-day Google Authenticator login token.";
                 return false;
             }
 
-            var configFingerprint = ComputeConfigFingerprint(config);
+            var fingerprint = ComputeConfigFingerprint(config);
             var token = storageService.LoadTrustedUnlockToken();
-            if (!trustedUnlockTokenService.TryUnprotectEncryptionKey(
-                token,
-                configFingerprint,
-                utcNow(),
-                out trustedKey,
-                out errorMessage))
+            if (!trustedUnlockTokenService.TryUnprotectAuthenticatorSecret(token, fingerprint, utcNow(),
+                out trustedAuthenticatorSecret, out errorMessage))
+            {
+                TryDeleteTrustedUnlockToken();
+                return false;
+            }
+            if (!totpService.VerifyCode(trustedAuthenticatorSecret, code))
+            {
+                errorMessage = "Invalid Google Authenticator code.";
+                return false;
+            }
+            if (!trustedUnlockTokenService.TryUnprotectVaultKey(token, fingerprint, utcNow(), out trustedKey, out errorMessage))
             {
                 TryDeleteTrustedUnlockToken();
                 return false;
             }
 
-            var decryptedTotpSecret = encryptionService.DecryptString(config.EncryptedTotpSecret, trustedKey);
-            if (!totpService.VerifyCode(decryptedTotpSecret, code))
-            {
-                errorMessage = "Invalid Google Authenticator code.";
-                return false;
-            }
-
-            var encryptedVaultJson = storageService.LoadVaultPayload();
-            var decryptedVault = encryptionService.DecryptObject<VaultData>(encryptedVaultJson, trustedKey);
+            var decryptedTotpSecret = encryptionService.DecryptString(config.EncryptedTotpSecret, trustedKey,
+                MasterPasswordService.TotpSecretContext);
+            var decryptedVault = encryptionService.DecryptObject<VaultData>(storageService.LoadVaultPayload(), trustedKey,
+                MasterPasswordService.VaultContext);
             decryptedVault.Items ??= [];
             NormalizeItems(decryptedVault.Items, utcNow());
 
             encryptionKey = trustedKey;
             trustedKey = null;
+            encryptionUsesEnvelope = true;
             totpSecretBase32 = decryptedTotpSecret;
             vaultData = decryptedVault;
             isVaultOpen = true;
             PurgeExpiredTrash();
             return true;
         }
-        catch (Exception ex) when (ex is IOException
-            or UnauthorizedAccessException
-            or InvalidOperationException
-            or CryptographicException
-            or FormatException
-            or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
+            or CryptographicException or FormatException or System.Text.Json.JsonException)
         {
             ClearSession();
             errorMessage = "Google Authenticator login could not open PasswordTool storage. Enter the Master Password to create a new 1-day token.";
@@ -394,13 +387,10 @@ public sealed class VaultService : IDisposable
         }
         finally
         {
-            if (trustedKey is { Length: > 0 })
-            {
-                CryptographicOperations.ZeroMemory(trustedKey);
-            }
+            if (trustedKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(trustedKey);
+            if (trustedAuthenticatorSecret is { Length: > 0 }) CryptographicOperations.ZeroMemory(trustedAuthenticatorSecret);
         }
     }
-
     public bool VerifyTotpForSession(string code)
     {
         ThrowIfDisposed();
@@ -527,35 +517,21 @@ public sealed class VaultService : IDisposable
         EnsureOpen();
         errorMessage = string.Empty;
         byte[]? verificationKey = null;
-        byte[]? newKey = null;
-
         try
         {
-            var oldConfig = storageService.LoadConfig();
-            if (!TryVerifyCurrentMasterPassword(currentMasterPassword, oldConfig, out verificationKey))
+            var config = storageService.LoadConfig();
+            if (config.Version < 3 || !TryVerifyCurrentMasterPassword(currentMasterPassword, config, out verificationKey))
             {
                 errorMessage = "The current Master Password is incorrect.";
                 return false;
             }
 
-            var newConfig = masterPasswordService.CreateConfig(newMasterPassword, totpSecretBase32 ?? string.Empty);
-            newConfig.CreatedAt = oldConfig.CreatedAt;
-            newConfig.UpdatedAt = utcNow();
-            newConfig.LoginMode = oldConfig.LoginMode;
-            newConfig.InactivityLockTimeoutMinutes = oldConfig.InactivityLockTimeoutMinutes;
-            newConfig.SensitiveActionTimeoutMinutes = oldConfig.SensitiveActionTimeoutMinutes;
-            newConfig.LastExternalBackupAt = oldConfig.LastExternalBackupAt;
-            newConfig.LastVerifiedBackupAt = oldConfig.LastVerifiedBackupAt;
-            newKey = masterPasswordService.DeriveKey(newMasterPassword, newConfig);
-            var payload = encryptionService.EncryptObject(vaultData, newKey);
-            storageService.SaveState(newConfig, payload);
-
-            CryptographicOperations.ZeroMemory(encryptionKey!);
-            encryptionKey = newKey;
-            newKey = null;
+            masterPasswordService.RewrapVaultKey(newMasterPassword, config, encryptionKey!);
+            config.UpdatedAt = utcNow();
+            storageService.SaveConfig(config);
             sensitiveSessionExpiresAt = null;
             TryDeleteTrustedUnlockToken();
-            SaveTrustedUnlockToken(newConfig);
+            SaveTrustedUnlockToken(config);
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException
@@ -564,13 +540,8 @@ public sealed class VaultService : IDisposable
             errorMessage = ex is ArgumentException ? ex.Message : "The Master Password could not be changed.";
             return false;
         }
-        finally
-        {
-            if (verificationKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(verificationKey);
-            if (newKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(newKey);
-        }
+        finally { if (verificationKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(verificationKey); }
     }
-
     public bool TryUpgradeKdf(string masterPassword, out string errorMessage)
     {
         ThrowIfDisposed();
@@ -611,9 +582,9 @@ public sealed class VaultService : IDisposable
                 return false;
             }
 
-            config.EncryptedTotpSecret = encryptionService.EncryptString(newTotpSecretBase32, encryptionKey!);
+            config.EncryptedTotpSecret = encryptionService.EncryptString(newTotpSecretBase32, encryptionKey!, MasterPasswordService.TotpSecretContext);
             config.UpdatedAt = utcNow();
-            storageService.SaveState(config, encryptionService.EncryptObject(vaultData, encryptionKey!));
+            storageService.SaveConfig(config);
             totpSecretBase32 = newTotpSecretBase32;
             sensitiveSessionExpiresAt = null;
             TryDeleteTrustedUnlockToken();
@@ -1035,6 +1006,7 @@ public sealed class VaultService : IDisposable
         totpSecretBase32 = null;
         vaultData = null;
         isVaultOpen = false;
+        encryptionUsesEnvelope = false;
         sensitiveSessionExpiresAt = null;
     }
 
@@ -1052,7 +1024,10 @@ public sealed class VaultService : IDisposable
     private void SaveVault()
     {
         EnsureMasterPasswordUnlocked();
-        storageService.SaveVaultPayload(encryptionService.EncryptObject(vaultData, encryptionKey!));
+        var payload = encryptionUsesEnvelope
+            ? encryptionService.EncryptObject(vaultData, encryptionKey!, MasterPasswordService.VaultContext)
+            : encryptionService.EncryptObject(vaultData, encryptionKey!);
+        storageService.SaveVaultPayload(payload);
     }
 
     private void UpdateBackupHealth(
@@ -1115,33 +1090,23 @@ public sealed class VaultService : IDisposable
 
     private void SaveTrustedUnlockToken(AppConfig config)
     {
-        if (encryptionKey is null || string.IsNullOrWhiteSpace(config.EncryptedTotpSecret))
-        {
+        if (!encryptionUsesEnvelope || encryptionKey is null || string.IsNullOrWhiteSpace(totpSecretBase32)
+            || config.Version < 3 || config.MasterKeySlot is null)
             return;
-        }
 
         try
         {
             var now = utcNow();
-            var token = trustedUnlockTokenService.CreateToken(
-                encryptionKey,
-                ComputeConfigFingerprint(config),
-                now,
-                now.AddDays(1));
+            var token = trustedUnlockTokenService.CreateToken(encryptionKey, totpSecretBase32,
+                ComputeConfigFingerprint(config), now, now.AddDays(1));
             storageService.SaveTrustedUnlockToken(token);
         }
-        catch (Exception ex) when (ex is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or CryptographicException
-            or InvalidOperationException
-            or NotSupportedException
-            or Win32Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+            or CryptographicException or InvalidOperationException or NotSupportedException or Win32Exception)
         {
             TryDeleteTrustedUnlockToken();
         }
     }
-
     private void TryDeleteTrustedUnlockToken()
     {
         try
@@ -1158,19 +1123,17 @@ public sealed class VaultService : IDisposable
 
     private static byte[] ComputeConfigFingerprint(AppConfig config)
     {
+        var slot = config.MasterKeySlot ?? throw new InvalidOperationException("The Master Password key slot is missing.");
         var fingerprintInput = string.Join('\n',
             config.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            config.KdfAlgorithm,
-            config.KdfIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            config.KdfMemorySizeKb.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            config.KdfParallelism.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            config.KeySizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            config.SaltBase64,
-            config.EncryptedTotpSecret);
-
+            slot.Version.ToString(System.Globalization.CultureInfo.InvariantCulture), slot.WrapAlgorithm,
+            slot.KdfAlgorithm, slot.KdfIterations.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            slot.KdfMemorySizeKb.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            slot.KdfParallelism.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            slot.KeySizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture), slot.SaltBase64,
+            slot.WrappedVaultKey, config.EncryptedTotpSecret);
         return SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintInput));
     }
-
     private VaultItem FindItem(Guid id)
     {
         return vaultData!.Items.FirstOrDefault(item => item.Id == id && !item.IsDeleted)
@@ -1195,6 +1158,55 @@ public sealed class VaultService : IDisposable
         return true;
     }
 
+    private bool TryMigrateLegacyVault(string masterPassword, AppConfig legacyConfig, VaultData data,
+        string authenticatorSecret, out AppConfig migratedConfig, out byte[] migratedKey)
+    {
+        migratedConfig = legacyConfig;
+        migratedKey = [];
+        var vaultKey = RandomNumberGenerator.GetBytes(MasterPasswordService.DefaultKeySizeBytes);
+        byte[]? verificationKey = null;
+        try
+        {
+            var candidate = masterPasswordService.CreateEnvelopeConfig(masterPassword, authenticatorSecret, vaultKey);
+            candidate.CreatedAt = legacyConfig.CreatedAt;
+            candidate.UpdatedAt = utcNow();
+            candidate.LoginMode = legacyConfig.LoginMode;
+            candidate.InactivityLockTimeoutMinutes = legacyConfig.InactivityLockTimeoutMinutes;
+            candidate.SensitiveActionTimeoutMinutes = legacyConfig.SensitiveActionTimeoutMinutes;
+            candidate.LastExternalBackupAt = legacyConfig.LastExternalBackupAt;
+            candidate.LastVerifiedBackupAt = legacyConfig.LastVerifiedBackupAt;
+            var payload = encryptionService.EncryptObject(data, vaultKey, MasterPasswordService.VaultContext);
+
+            if (!masterPasswordService.TryUnlockConfig(masterPassword, candidate, out verificationKey, out var verifiedSecret)
+                || !CryptographicOperations.FixedTimeEquals(vaultKey, verificationKey)
+                || !string.Equals(authenticatorSecret, verifiedSecret, StringComparison.Ordinal))
+                throw new CryptographicException("The staged envelope configuration could not be verified.");
+            _ = encryptionService.DecryptObject<VaultData>(payload, verificationKey, MasterPasswordService.VaultContext);
+
+            storageService.SaveStateVerified(candidate, payload, (stagedConfig, stagedPayload) =>
+            {
+                if (stagedConfig.Version != 3 || stagedConfig.MasterKeySlot is null)
+                    throw new InvalidOperationException("The staged envelope configuration is invalid.");
+                _ = encryptionService.DecryptObject<VaultData>(stagedPayload, vaultKey, MasterPasswordService.VaultContext);
+            });
+            migratedConfig = candidate;
+            migratedKey = vaultKey;
+            vaultKey = [];
+            TryDeleteTrustedUnlockToken();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+            or InvalidOperationException or CryptographicException or FormatException or NotSupportedException
+            or System.Text.Json.JsonException)
+        {
+            return false;
+        }
+        finally
+        {
+            if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey);
+            if (verificationKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(verificationKey);
+        }
+    }
     private void PurgeExpiredTrash()
     {
         var cutoff = utcNow().AddDays(-30);

@@ -128,7 +128,7 @@ public sealed class VaultSettingsForm : Form
         if (form.ShowDialog(this) == DialogResult.OK)
         {
             masterPasswordTextBox.Clear();
-            MessageBox.Show("The Master Password was changed and the vault was re-encrypted.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("The Master Password was changed and the vault key was re-wrapped.", "PasswordTool", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
@@ -160,7 +160,7 @@ public sealed class VaultSettingsForm : Form
 
     private void UpgradeKdf(Button button)
     {
-        using var prompt = new MasterPasswordPromptForm("Upgrade KDF", "Enter the Master Password to re-encrypt this vault with the current Argon2id settings.");
+        using var prompt = new MasterPasswordPromptForm("Upgrade KDF", "Enter the Master Password to re-wrap this vault key with the current Argon2id settings.");
         if (prompt.ShowDialog(this) != DialogResult.OK) return;
         if (!vaultService.TryUpgradeKdf(prompt.MasterPassword, out var error))
         {

@@ -16,34 +16,34 @@ PasswordTool.Api ──────┘
 
 ```text
 First launch
-  choose empty vault or authenticated encrypted-backup recovery
-  -> new Master Password + generated TOTP secret + confirmed 6-digit code
-    -> Argon2id (3 passes, 64 MiB, parallelism 2, random 32-byte salt)
-    -> 256-bit key
-    -> encrypt config secret and empty or recovered vault with AES-256-GCM
-    -> optionally create a one-day DPAPI-CurrentUser trusted token
+  -> generate a random 256-bit DEK
+  -> Argon2id derives a KEK from the Master Password
+  -> KEK wraps the DEK with AES-256-GCM
+  -> DEK encrypts the vault and PasswordTool Authenticator secret with purpose-bound AAD
+  -> trusted token separately DPAPI-protects the Authenticator secret and DEK
 
 Master Password unlock
-  derive key -> authenticate/decrypt config and vault -> refresh trusted token
+  derive KEK -> unwrap DEK -> decrypt config secret and vault -> refresh trusted token
 
-Authenticator unlock
-  unexpired same-user DPAPI token -> recover vault key -> verify TOTP -> decrypt vault
+Authenticator trusted unlock
+  validate token -> DPAPI-open Authenticator secret -> verify TOTP
+  -> only then DPAPI-open DEK -> decrypt vault
 ```
 
 A Master Password is always the recovery path for an unexpired-token failure. There is no recovery/reset/backdoor if the Master Password, authenticator secret, and usable encrypted backup are lost.
-Legacy PBKDF2-HMAC-SHA256 vaults remain readable and are upgraded only after the current Master Password is verified. Changing the Master Password always creates a fresh Argon2id salt and re-encrypts the full vault.
+Legacy v1/v2 vaults remain readable and are atomically migrated after the current Master Password is verified. Migration stages and cryptographically verifies v3 files before commit and preserves the old pair on failure. Changing the Master Password creates a fresh Argon2id salt and re-wraps the same DEK; `.storage` is not re-encrypted.
 
 ## Persisted data
 
 | File | Purpose | Protection |
 | --- | --- | --- |
-| `%LocalAppData%\PasswordTool\.config` | KDF metadata, login preference, bounded security timeouts, encrypted TOTP secret, nullable external-backup and verification timestamps | TOTP secret is AES-256-GCM encrypted with the derived vault key. No backup path or passphrase is stored. |
+| `%LocalAppData%\PasswordTool\.config` | v3 Master key slot, login/security settings, encrypted Authenticator secret, backup-health timestamps | Argon2id-derived KEK wraps the random DEK; the Authenticator secret is encrypted by the DEK with purpose-bound AAD. |
 | `%LocalAppData%\PasswordTool\.storage` | Vault items | Entire JSON payload is AES-256-GCM encrypted. |
-| `%LocalAppData%\PasswordTool\.trusted-unlock` | Optional one-day trusted-device token | Vault key protected with Windows DPAPI for CurrentUser and tied to a config fingerprint. |
+| `%LocalAppData%\PasswordTool\.trusted-unlock` | Optional one-day trusted-device token | Separate DPAPI-CurrentUser blobs protect the Authenticator secret and DEK; both are tied to a config fingerprint. |
 | `%LocalAppData%\PasswordTool\.snapshots` | Up to five prior config/vault pairs | Config and vault remain in their normal encrypted-at-rest formats. |
 
 Hidden/System file attributes are only obfuscation. Treat an incomplete `.config`/`.storage` pair as an error; never silently recreate or overwrite it.
-Config and vault writes are one logical state transition: stage both, snapshot the previous complete pair, replace both, and roll back both after a write failure. Snapshot restore also restores a complete pair and removes the trusted-unlock token.
+Config and vault writes are one logical state transition: stage and read back both, run cryptographic verification for migration, snapshot the previous complete pair, replace both, and roll back both after a write failure. Snapshot restore also restores a complete pair and removes the trusted-unlock token.
 
 ## Vault and backup invariants
 
@@ -51,11 +51,11 @@ Config and vault writes are one logical state transition: stage both, snapshot t
 - A password item may contain one normalized Base32 website TOTP secret. A recovery-code item may not contain password or TOTP data.
 - Favorites, folders, and tags live inside the encrypted vault and backup payloads. List clones expose only whether a TOTP secret exists, never the secret itself.
 - `Title` is required. Core validates item shape before add/update/export/import.
-- TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when a TOTP secret exists.
+- TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when configured. It is an application authorization gate and never derives, wraps, encrypts, or decrypts a vault key.
 - A successful application-TOTP check authorizes sensitive actions for the configured 1–30 minute window (five minutes by default). The authorization is in-memory only and is cleared with the vault session or whenever security settings change.
 - Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
 - Inspection authenticates and validates the complete backup but returns only format/version, creation time, and item/type/active/Trash counts. It never returns the decrypted payload or secret fields.
-- New-machine recovery is allowed only when neither `.config` nor `.storage` exists. Core validates the backup, new Master Password, and new Authenticator confirmation before atomically committing a fresh Argon2id config and recovered encrypted vault. It never imports the old config, vault key, trusted token, or application Authenticator secret.
+- New-machine recovery is allowed only when neither `.config` nor `.storage` exists. Core validates the backup, new Master Password, and new Authenticator confirmation before atomically committing a fresh random DEK, Argon2id Master key slot, and recovered encrypted vault. It never imports the old config, vault key, trusted token, or application Authenticator secret.
 - Backup-health timestamps change only after an external file write or full authenticated verification succeeds. Config metadata updates use the same paired config/vault state transaction.
 - Internal snapshots live beside the vault on the same disk and are not an external or disaster-recovery backup.
 - Import is validate-then-commit: enforce 10 MB, JSON depth 32, exact format/KDF/version, authenticated decryption, item limits, and unique IDs; show new/duplicate/conflict items; add new IDs only; rollback in-memory additions when save fails.

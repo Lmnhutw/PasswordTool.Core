@@ -56,6 +56,14 @@ public sealed partial class TotpService
         }
     }
 
+    public bool VerifyCode(byte[] secretBytes, string code)
+    {
+        ArgumentNullException.ThrowIfNull(secretBytes);
+        var normalizedCode = code?.Trim() ?? string.Empty;
+        if (secretBytes.Length < 10 || !SixDigitCodeRegex().IsMatch(normalizedCode)) return false;
+        var totp = new Totp(secretBytes);
+        return totp.VerifyTotp(normalizedCode, out _, new VerificationWindow(previous: 1, future: 1));
+    }
     public bool IsSecretValid(string secretBase32)
     {
         try

@@ -28,7 +28,7 @@ public sealed class ChangeMasterPasswordForm : Form
         AddRow(layout, "Current password", currentPassword, 0);
         AddRow(layout, "New password", newPassword, 1);
         AddRow(layout, "Confirm new password", confirmation, 2);
-        var help = new Label { Text = "Use at least 12 characters. The vault will be re-encrypted with Argon2id.", Dock = DockStyle.Fill };
+        var help = new Label { Text = "Use at least 12 characters. Argon2id will derive a new key-encryption key and re-wrap the vault key.", Dock = DockStyle.Fill };
         layout.Controls.Add(help, 0, 3);
         layout.SetColumnSpan(help, 2);
         var save = new Button { Text = "Change", Width = 100 };

@@ -7,6 +7,7 @@ namespace PasswordTool.Core.Services;
 public sealed class VaultStorageService
 {
     private const int MaxSnapshots = 5;
+    private readonly Action<string>? stateWriteCheckpoint;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -15,11 +16,11 @@ public sealed class VaultStorageService
     };
 
     public VaultStorageService()
-        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PasswordTool"))
+        : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PasswordTool"), null)
     {
     }
 
-    public VaultStorageService(string appDirectory)
+    public VaultStorageService(string appDirectory, Action<string>? stateWriteCheckpoint = null)
     {
         if (string.IsNullOrWhiteSpace(appDirectory))
         {
@@ -27,6 +28,7 @@ public sealed class VaultStorageService
         }
 
         AppDirectory = appDirectory;
+        this.stateWriteCheckpoint = stateWriteCheckpoint;
         ConfigPath = Path.Combine(AppDirectory, ".config");
         VaultPath = Path.Combine(AppDirectory, ".storage");
         TrustedUnlockTokenPath = Path.Combine(AppDirectory, ".trusted-unlock");
@@ -131,7 +133,15 @@ public sealed class VaultStorageService
     {
         ArgumentNullException.ThrowIfNull(config);
         ValidateVaultPayload(encryptedVaultJson);
-        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true);
+        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true, verifyStagedState: null);
+    }
+
+    public void SaveStateVerified(AppConfig config, string encryptedVaultJson, Action<AppConfig, string> verifyStagedState)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(verifyStagedState);
+        ValidateVaultPayload(encryptedVaultJson);
+        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true, verifyStagedState);
     }
 
     public IReadOnlyList<VaultSnapshotInfo> GetSnapshots()
@@ -167,11 +177,11 @@ public sealed class VaultStorageService
         _ = DeserializeConfig(configJson);
         var vaultJson = File.ReadAllText(vaultPath);
         ValidateVaultPayload(vaultJson);
-        SaveRawState(configJson, vaultJson, createSnapshot: true);
+        SaveRawState(configJson, vaultJson, createSnapshot: true, verifyStagedState: null);
         DeleteTrustedUnlockToken();
     }
 
-    private void SaveRawState(string configJson, string vaultJson, bool createSnapshot)
+    private void SaveRawState(string configJson, string vaultJson, bool createSnapshot, Action<AppConfig, string>? verifyStagedState)
     {
         EnsureStorageDirectory();
         var oldConfig = File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath) : null;
@@ -183,6 +193,12 @@ public sealed class VaultStorageService
         {
             File.WriteAllText(configTemp, configJson);
             File.WriteAllText(vaultTemp, vaultJson);
+            stateWriteCheckpoint?.Invoke("staged");
+            var stagedConfig = DeserializeConfig(File.ReadAllText(configTemp));
+            var stagedVault = File.ReadAllText(vaultTemp);
+            ValidateVaultPayload(stagedVault);
+            verifyStagedState?.Invoke(stagedConfig, stagedVault);
+            stateWriteCheckpoint?.Invoke("verified");
             if (createSnapshot && oldConfig is not null && oldVault is not null)
             {
                 CreateSnapshot(oldConfig, oldVault);
@@ -193,7 +209,9 @@ public sealed class VaultStorageService
             TryClearProtectedAttributes(ConfigPath);
             TryClearProtectedAttributes(VaultPath);
             File.Move(configTemp, ConfigPath, overwrite: true);
+            stateWriteCheckpoint?.Invoke("config-replaced");
             File.Move(vaultTemp, VaultPath, overwrite: true);
+            stateWriteCheckpoint?.Invoke("vault-replaced");
             TryApplyHiddenSystemAttributes(ConfigPath);
             TryApplyHiddenSystemAttributes(VaultPath);
             DeleteFileStrict(StateTransactionPath);

@@ -237,10 +237,15 @@ public partial class MainForm : Form
                 return;
             }
 
-            if (!vaultService.TryUnlockMasterPassword(unlockVaultForm.MasterPassword, out var errorMessage))
+            var unlockResult = vaultService.UnlockWithMasterPassword(unlockVaultForm.MasterPassword);
+            if (!unlockResult.Success)
             {
-                ShowError(errorMessage);
+                ShowError(unlockResult.Message);
                 continue;
+            }
+            if (unlockResult.Status == VaultUnlockStatus.UnlockedMigrationDeferred)
+            {
+                ShowWarning(unlockResult.Message);
             }
 
             if (OpenVaultForm())

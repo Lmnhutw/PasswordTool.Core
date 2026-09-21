@@ -54,24 +54,26 @@ dotnet build PasswordTool.slnx
 ## How the vault works
 
 ```text
+Random 256-bit DEK
+  ├─ AES-256-GCM encrypts vault items in .storage
+  └─ AES-256-GCM encrypts the PasswordTool Authenticator secret in .config
+
 Master Password
   └─ Argon2id (3 passes, 64 MiB, parallelism 2 + random 32-byte salt)
-       └─ 256-bit vault key
-            ├─ AES-256-GCM encrypts vault items in .storage
-            └─ AES-256-GCM encrypts the TOTP secret in .config
+       └─ KEK wraps the DEK with AES-256-GCM
 
 Successful Master Password sign-in
-  └─ Windows DPAPI (CurrentUser) protects the vault key for one day
-       └─ valid TOTP code + unexpired local token can reopen the vault
+  └─ Windows DPAPI (CurrentUser) separately protects the Authenticator secret and DEK for one day
+       └─ the app verifies TOTP before asking DPAPI to release the DEK
 ```
 
 ### Sign-in choices
 
-- **Master Password** always derives the vault key and unlocks the vault. A successful sign-in refreshes the one-day trusted token.
+- **Master Password** derives a KEK that unwraps the random vault DEK. A successful sign-in refreshes the one-day trusted token.
 - **Google Authenticator** requires both a valid 6-digit TOTP code and an unexpired `.trusted-unlock` token on the *same Windows user profile*. It does not permanently replace the Master Password.
 - **Hybrid** is the default preference. The Settings screen can prefer Google Authenticator at the next unlock, but changing this setting requires the Master Password.
 - Older vaults without a TOTP secret remain Master-Password-only.
-- Existing PBKDF2 vaults remain readable and can be upgraded in Settings; new vaults use Argon2id.
+- Existing v1/v2 vaults remain readable and migrate atomically to v3 envelope encryption after a successful Master Password sign-in. Legacy trusted unlock is disabled until that migration succeeds.
 - One successful PasswordTool Authenticator check opens a short sensitive-action session. Settings can choose 1–30 minutes; the default is five. Saving timeout changes clears any active sensitive-action session.
 - The vault locks after a configurable 1–120 minutes of system inactivity (10 minutes by default), when the Windows session locks or disconnects, and when Windows suspends or resumes. Only one desktop instance runs per Windows session.
 
@@ -101,8 +103,8 @@ PasswordTool protects data at rest and provides a local second factor for sensit
 | Protected by the application | Not protected by the application |
 | --- | --- |
 | Vault entries and TOTP secret are encrypted with AES-256-GCM. | Malware, a compromised running Windows session, screen capture, or memory inspection while the vault is open. |
-| Every new vault uses a random KDF salt; cryptographic key buffers are cleared when sessions end where the runtime permits. | Loss of the Master Password, authenticator secret, and usable backups: there is no recovery, reset, backdoor, or cloud copy. |
-| The trusted token is DPAPI-protected for the current Windows user and bound to the current vault configuration. | Another user/profile or device using that token; DPAPI protection is scoped to the local Windows user, not portable. |
+| Every new vault uses an independent random DEK and KDF salt; cryptographic key buffers are cleared when sessions end where the runtime permits. | Loss of the Master Password, authenticator secret, and usable backups: there is no recovery, reset, backdoor, or cloud copy. |
+| The trusted token has separate DPAPI-protected Authenticator-secret and DEK blobs, is bound to the current config, and releases the DEK only after app-level TOTP verification. | Malware or another process already acting as the same Windows user; TOTP is an application gate, not a cryptographic second factor against a compromised Windows account. |
 | TOTP gates secret reveal, editing, and backup export/import when configured. | A weak Master Password or an unlocked device left accessible to another person. |
 | Sensitive clipboard values are cleared after 30 seconds when unchanged. | Another process reading the clipboard, clipboard history, remote-control software, or malware. |
 
@@ -118,9 +120,9 @@ The desktop app stores its files in:
 
 | File | Contents |
 | --- | --- |
-| `.config` | KDF metadata, login preference, validated security timeouts, encrypted TOTP secret, and nullable backup-health timestamps. |
+| `.config` | Versioned Master key slot (Argon2id metadata plus wrapped DEK), encrypted Authenticator secret, login/security settings, and backup-health timestamps. |
 | `.storage` | AES-256-GCM encrypted vault payload. |
-| `.trusted-unlock` | Optional, one-day DPAPI-protected vault key for the current Windows user. |
+| `.trusted-unlock` | Optional, one-day token with separate DPAPI-protected Authenticator-secret and DEK blobs for the current Windows user. |
 | `.snapshots` | Up to five previous paired config/vault states, retaining the same encrypted-at-rest representation. |
 
 Do not manually edit, mix, or partially restore these files. If only `.config` or `.storage` is present, the app stops rather than overwriting partial storage.

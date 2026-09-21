@@ -55,7 +55,9 @@ public sealed class VaultRecoveryTests : IDisposable
 
         Assert.True(vault.IsInitialized);
         var config = storage.LoadConfig();
-        Assert.Equal(MasterPasswordService.Argon2idAlgorithm, config.KdfAlgorithm);
+        Assert.Equal(3, config.Version);
+        Assert.NotNull(config.MasterKeySlot);
+        Assert.Equal(MasterPasswordService.Argon2idAlgorithm, config.MasterKeySlot!.KdfAlgorithm);
         Assert.NotEqual(oldConfig.SaltBase64, config.SaltBase64);
         Assert.NotEqual(oldConfig.EncryptedTotpSecret, config.EncryptedTotpSecret);
         Assert.Equal(now, config.LastVerifiedBackupAt);
