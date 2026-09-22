@@ -45,7 +45,7 @@ try {
     $stagingRoot = Join-Path $temporaryRoot 'staging'
     $publishDirectory = Join-Path $stagingRoot 'publish'
     New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
-    [System.IO.File]::WriteAllBytes((Join-Path $publishDirectory 'PasswordTool.WinForms.exe'), [byte[]](1, 2, 3, 4))
+    [System.IO.File]::WriteAllBytes((Join-Path $publishDirectory 'PasswordTool.WinUI.exe'), [byte[]](1, 2, 3, 4))
     [System.IO.File]::WriteAllBytes((Join-Path $publishDirectory 'PasswordTool.Core.dll'), [byte[]](5, 6, 7, 8))
 
     Invoke-ReleasePipelineTest -Name 'Release staging rejects output outside its configured root' -Action {
@@ -56,7 +56,7 @@ try {
         Assert-PublishedPayload -PublishDirectory $publishDirectory -OutputRoot $stagingRoot -MaximumPayloadSizeMB 1 | Out-Null
         $first = Get-Content -LiteralPath (Write-ReleaseChecksums -OutputRoot $stagingRoot -PublishDirectory $publishDirectory) -Raw
         $second = Get-Content -LiteralPath (Write-ReleaseChecksums -OutputRoot $stagingRoot -PublishDirectory $publishDirectory) -Raw
-        if ($first -ne $second -or $first -notmatch 'PasswordTool\.WinForms\.exe') {
+        if ($first -ne $second -or $first -notmatch 'PasswordTool\.WinUI\.exe') {
             throw 'Checksums were not deterministic or did not include the published executable.'
         }
     }
@@ -86,7 +86,7 @@ try {
         $env:PASSWORDTOOL_SIGN_CERT_THUMBPRINT = '0123456789ABCDEF0123456789ABCDEF01234567'
         $env:PASSWORDTOOL_SIGN_TIMESTAMP_URL = 'https://timestamp.example.invalid'
         $configuration = Get-SigningConfiguration -SigningMode Required
-        Assert-Throws -Action { Invoke-ReleaseSigning -Configuration $configuration -FilePath (Join-Path $publishDirectory 'PasswordTool.WinForms.exe') -OutputRoot $stagingRoot } -Message 'Expected failed signature verification to stop the release.'
+        Assert-Throws -Action { Invoke-ReleaseSigning -Configuration $configuration -FilePath (Join-Path $publishDirectory 'PasswordTool.WinUI.exe') -OutputRoot $stagingRoot } -Message 'Expected failed signature verification to stop the release.'
     }
 }
 finally {

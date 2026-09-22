@@ -3,12 +3,12 @@
 ## 1. Kết luận và quyết định đã khóa
 
 - Giữ nguyên contract `PasswordTool.Core` v3, encrypted backup v1 và API; WinUI phải dùng envelope-encryption/migration behavior hiện hành thay vì đóng băng định dạng `.config`/`.storage` cũ.
-- Thay WinForms bằng WinUI trong một lần cutover. Không phát hành phiên bản hybrid; WinForms chỉ được giữ làm behavioral reference đến khi WinUI đạt parity rồi mới xóa.
-- Dùng WinUI 3, Windows App SDK stable `2.4.0`, .NET 10, `CommunityToolkit.Mvvm 8.4.2` và `Microsoft.Extensions.DependencyInjection 10.0.12`. WinUI/Windows App SDK hỗ trợ từ Windows 10 1809; project target SDK mới nhưng khai báo minimum `10.0.17763.0`. Xem [Windows App SDK](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/) và [MVVM Toolkit](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/).
-- Giữ kênh phát hành ZIP + Inno Setup: unpackaged, x64, self-contained, offline, single-file EXE có extraction lúc chạy lần đầu. Cấu hình bắt buộc gồm `WindowsPackageType=None`, `WindowsAppSDKSelfContained`, `SelfContained`, `EnableMsixTooling`, `IncludeAllContentForSelfExtract` và `PublishSingleFile`. Xem [hướng dẫn unpackaged WinUI](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app).
+- Thay WinForms bằng WinUI trong một lần cutover. Không phát hành phiên bản hybrid; WinForms đã được loại khỏi solution sau khi WinUI đạt parity.
+- Dùng WinUI 3, Windows App SDK stable `2.5.1`, .NET 10, `CommunityToolkit.Mvvm 8.4.2` và `Microsoft.Extensions.DependencyInjection 10.0.12`. WinUI/Windows App SDK hỗ trợ từ Windows 10 1809; project target SDK mới nhưng khai báo minimum `10.0.17763.0`. Xem [Windows App SDK](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/) và [MVVM Toolkit](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/mvvm/).
+- Giữ kênh phát hành ZIP + Inno Setup: unpackaged, x64, self-contained, offline, single-file EXE có extraction lúc chạy lần đầu. Cấu hình bắt buộc gồm `AppxPackage=false`, `WindowsPackageType=None`, `WindowsAppSDKSelfContained`, `WindowsAppSdkUndockedRegFreeWinRTInitialize=true`, `WindowsAppSdkDeploymentManagerInitialize=false`, `SelfContained`, `EnableMsixTooling`, `IncludeAllContentForSelfExtract` và `PublishSingleFile`. Các deployment-shape property phải được đặt trong project hoặc `Directory.Build.props`, trước khi Windows App SDK targets chọn auto-initializer. Xem [hướng dẫn unpackaged WinUI](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app).
 - UI dùng single-window `NavigationView`, phong cách Bitwarden nhưng ít dày hơn, restrained blue, theo Light/Dark/High Contrast của hệ thống.
 - Vault dùng Option A — List first: danh sách là nội dung chính, không có detail pane mặc định; editor và secret viewer là flow riêng.
-- Baseline hiện tại hợp lệ: solution build không warning/error và 78/78 Core tests pass. Máy hiện chưa cài WinUI `dotnet new` template, nên setup tooling là prerequisite đầu tiên.
+- Baseline hiện tại hợp lệ: solution build không warning/error, 86/86 Core tests và 13/13 Presentation tests pass. WinApp CLI `0.6.1` và official WinUI template pack đã được cài; unpackaged x64 app đã build/run trên Windows 10 22H2.
 
 ## 2. Kiến trúc và contract mới
 
@@ -20,9 +20,9 @@
   - Không tham chiếu `Microsoft.UI.Xaml`, HWND hoặc WinRT UI types.
 - Thêm `PasswordTool.WinUI` target `net10.0-windows10.0.26100.0`, minimum Windows `10.0.17763.0`:
   - Chứa XAML views, resources, WinUI adapters, composition root và executable.
-  - Tham chiếu Presentation, Windows App SDK `2.4.0`, DI `10.0.12` và QRCoder `1.8.0`.
+  - Tham chiếu Presentation, Windows App SDK `2.5.1`, DI `10.0.12` và QRCoder `1.8.0`.
 - Thêm `PasswordTool.Presentation.Tests`, dùng cùng xUnit stack với Core tests.
-- Khi đạt cutover gate: xóa `PasswordTool.WinForms`, project preview WinForms và mọi solution/release reference tới executable cũ.
+- Cutover đã xóa `PasswordTool.WinForms`, project preview WinForms và mọi solution/release reference tới executable cũ.
 
 ### MVVM boundary
 
@@ -73,7 +73,7 @@
 
 ### Phase 1 — Tooling và baseline
 
-- Cài WinUI template/workload và bật Developer Mode theo [WinUI quick start](https://learn.microsoft.com/en-us/windows/apps/get-started/start-here).
+- Cài WinApp CLI/template và kiểm tra Developer Mode theo [WinUI quick start](https://learn.microsoft.com/en-us/windows/apps/get-started/start-here); chỉ yêu cầu bật Developer Mode khi flow packaged/deployment cần đăng ký package. Unpackaged self-contained flow hiện tại build/run không cần bật.
 - Ghi nhận screenshots, flow inventory và dirty WinForms changes hiện tại; không xóa hoặc format lại chúng.
 - Scaffold hai project mới, pin stable dependencies và xác nhận blank unpackaged app build/run trên Windows 10.
 
@@ -103,10 +103,20 @@
 
 - Đổi publish target và expected executable thành `PasswordTool.WinUI.exe`.
 - Sửa Inno shortcuts, signing, checksum/manifest và qualification scripts; installer vẫn không xóa `%LocalAppData%\PasswordTool`.
-- Xóa WinForms project sau khi toàn bộ acceptance gate pass.
+- Đã xóa WinForms project sau khi các acceptance gate được approve bỏ qua theo phạm vi release developer/test.
 - Cập nhật README, architecture, frontend structure và release operations theo cấu trúc/XAML/deployment mới.
 
 ## 5. Verification, acceptance và assumptions
+
+### Tiến độ xác minh hiện tại
+
+- Release solution build đã pass với 0 warning/error; Core 86/86 và Presentation 13/13 tests pass.
+- Release pipeline và qualification script tests đã pass sau khi chuyển target sang WinUI.
+- Publish single-file thực tế đã tạo `PasswordTool.WinUI.exe` (~254 MiB). Publish profile từ template đã được sửa để không ghi đè `PublishSingleFile`; thư viện Presentation được build AnyCPU với deployment properties tách khỏi executable.
+- Chạy publish pipeline thực tế với `-SkipInstaller -SigningMode Disabled` đã hoàn tất, tạo đúng một file `publish/PasswordTool.WinUI.exe`; các PDB được loại khỏi payload trước qualification.
+- Inno Setup 6.7.3 đã được cài trên máy phát triển; pipeline thực tế có installer đã compile thành công (`PasswordTool-99.99.99-win-x64-setup.exe`) và artifact qualification đã pass. Bước còn lại là manual smoke first-install/upgrade/uninstall trên máy Windows sạch; release hiện vẫn unsigned developer/test-only.
+- Runtime single-file đã pass trên máy phát triển: executable `PasswordTool.WinUI.exe` (~254 MiB) giữ process/cửa sổ `PasswordTool` chạy ổn định quá 12 giây sau khi launch trực tiếp. Các lỗi startup đã sửa gồm XAML icon không tồn tại, setter filter chạy sớm, và thứ tự khởi tạo dispatcher. UI acceptance và clean-machine Windows 10/11 installer gates được approve bỏ qua cho release developer/test.
+- Clipboard guard hiện mới áp dụng cho các editor input nhạy cảm; cần hoàn thiện guard toàn bộ input và kiểm tra modal/session-lock cleanup trước cutover.
 
 ### Automated verification
 
@@ -138,4 +148,4 @@
 - Chỉ hỗ trợ Windows x64; không thêm ARM64 trong migration này.
 - Không thay đổi product scope: không cloud sync, telemetry, auto-update, account, browser extension hoặc API vault.
 - Không ship từng phần; các phase chỉ là implementation gates trong cùng migration.
-- Các WinForms changes chưa commit là behavioral baseline và phải được bảo toàn cho tới cutover.
+- WinForms behavioral baseline đã được thay thế bằng WinUI; các tài liệu lịch sử còn nhắc WinForms chỉ mang tính tham chiếu.

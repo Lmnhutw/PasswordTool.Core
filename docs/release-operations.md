@@ -2,7 +2,7 @@
 
 ## Release boundary
 
-This is the only supported release-publish path for `PasswordTool.WinForms`:
+This is the only supported release-publish path for `PasswordTool.WinUI`:
 
 ```powershell
 pwsh .\scripts\Publish-WindowsRelease.ps1 -Version 1.0.0
@@ -10,7 +10,7 @@ pwsh .\scripts\Publish-WindowsRelease.ps1 -Version 1.0.0
 
 It targets `win-x64` and uses the repository's .NET 10 release properties: self-contained, single-file, non-trimmed, deterministic publish with embedded debug information disabled. Output is staged under `artifacts\releases\.staging` and finalized only as `artifacts\releases\<version>`. An existing version directory is always rejected rather than overwritten.
 
-The release script publishes only `src\PasswordTool.WinForms\PasswordTool.WinForms.csproj`; it does not publish `PasswordTool.Api`, test projects, source files, or local user data. Before archiving, it rejects source files, logs, certificates, database files, and the vault paths `.config`, `.storage`, `.trusted-unlock`, and `.snapshots`. It also rejects missing or empty files, output outside its configured staging root, and payloads above the configured size limit.
+The release script publishes only `src\PasswordTool.WinUI\PasswordTool.WinUI.csproj`; it does not publish `PasswordTool.Api`, test projects, source files, or local user data. The WinUI payload is unpackaged, self-contained, and includes the Windows App SDK runtime content for first-run extraction. Before archiving, the script rejects source files, logs, certificates, database files, and the vault paths `.config`, `.storage`, `.trusted-unlock`, and `.snapshots`. It also rejects missing or empty files, output outside its configured staging root, and payloads above the configured size limit.
 
 The resulting directory contains:
 
@@ -32,12 +32,12 @@ pwsh .\scripts\Invoke-ReleaseQualification.ps1 -ReleaseDirectory .\artifacts\rel
 
 The command does not trust the publish script's success output and does not write into the release directory. It independently:
 
-- verifies the finalized versioned directory shape, self-contained WinForms release contract, required payload, ZIP, checksums, manifest, and status file;
+- verifies the finalized versioned directory shape, unpackaged self-contained WinUI release contract, required payload, ZIP, checksums, manifest, and status file;
 - compares every portable ZIP entry byte-for-byte with the validated `publish\` payload;
 - recalculates every declared SHA-256 value and rejects missing, extra, duplicate, modified, or undeclared payload/distribution files;
 - accepts only the public manifest fields `version`, `artifacts` (`fileName` and `sha256`), and `releaseNotes`;
 - rejects API/test/source content, vault files and paths, logs, certificates, keys, likely secret material, links, and reparse points;
-- verifies that WinForms remains the only published project, `PasswordTool.Api` remains excluded, the desktop/Core sources have no runtime networking, updater, telemetry, or logging surface, and the vault storage source contract remains `%LocalAppData%\PasswordTool`;
+- verifies that WinUI remains the only published project, `PasswordTool.Api` remains excluded, the WinUI/Presentation/Core sources have no runtime networking, updater, telemetry, or logging surface, and the vault storage source contract remains `%LocalAppData%\PasswordTool`;
 - checks the Inno Setup template's per-user x64 identity, publisher field, upgrade identity, install location, payload source, Start Menu entry, and non-deletion contract.
 
 A successful command means the automated artifact and source-contract checks passed. Read every status field and limitation in the result:
@@ -106,7 +106,7 @@ Get-Content .\artifacts\releases\1.0.0\checksums.sha256 | ForEach-Object {
 For a signed executable, verify its Authenticode signature and timestamp:
 
 ```powershell
-signtool verify /pa /tw .\artifacts\releases\1.0.0\publish\PasswordTool.WinForms.exe
+signtool verify /pa /tw .\artifacts\releases\1.0.0\publish\PasswordTool.WinUI.exe
 ```
 
 Verify the installer too when one was produced. A successful verification is the only basis for describing the release as signed.

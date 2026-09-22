@@ -2,7 +2,7 @@
 
 The core owns Argon2id/PBKDF2 key derivation, AES-GCM vault persistence, paired snapshots, encrypted-backup inspection and new-machine recovery, bounded security timers, Master Password and Authenticator rotation, password history, Trash retention, and local security findings. UI and API layers must call these workflows rather than reproduce cryptographic or persistence logic.
 
-The reusable domain and security layer for PasswordTool. UI and HTTP projects depend on this project; Core must never depend on WinForms or ASP.NET request/response types.
+The reusable domain and security layer for PasswordTool. The WinUI desktop UI and HTTP projects depend on this project; Core must never depend on UI-framework or ASP.NET request/response types.
 
 ## Responsibilities
 

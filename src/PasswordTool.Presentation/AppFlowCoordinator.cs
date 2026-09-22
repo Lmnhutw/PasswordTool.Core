@@ -1,0 +1,343 @@
+using PasswordTool.Core.Models;
+using PasswordTool.Core.Services;
+
+namespace PasswordTool.Presentation;
+
+/// <summary>Owns app-flow state while keeping VaultService access serialized.</summary>
+public sealed class AppFlowCoordinator
+{
+    private readonly VaultService vaultService;
+    private readonly IVaultOperationRunner operations;
+    private readonly TotpService totpService;
+    private readonly bool hasPartialStorage;
+
+    public AppFlowCoordinator(VaultService vaultService, IVaultOperationRunner operations, TotpService totpService)
+    {
+        this.vaultService = vaultService;
+        this.operations = operations;
+        this.totpService = totpService;
+        hasPartialStorage = vaultService.HasPartialStorage;
+        FlowState = ResolveInitialState(vaultService.IsInitialized, hasPartialStorage);
+    }
+
+    public AppFlowState FlowState { get; private set; }
+    public bool HasPartialStorage => hasPartialStorage;
+
+    public static AppFlowState ResolveInitialState(bool isInitialized, bool hasPartialStorage) =>
+        hasPartialStorage ? AppFlowState.Recover : isInitialized ? AppFlowState.Unlock : AppFlowState.FirstLaunch;
+
+    public async Task<VaultUnlockResult> UnlockAsync(string masterPassword, CancellationToken cancellationToken = default)
+    {
+        var result = await operations.RunAsync(() => vaultService.UnlockWithMasterPassword(masterPassword), cancellationToken).ConfigureAwait(false);
+        if (result.Success) FlowState = AppFlowState.Unlocked;
+        return result;
+    }
+
+    public Task<UnlockOptions> GetUnlockOptionsAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => new UnlockOptions(vaultService.CanUnlockWithGoogleAuthenticatorToken, vaultService.LoginMode),
+            cancellationToken);
+
+    public async Task<VaultUnlockResult> UnlockWithAuthenticatorAsync(
+        string code,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await operations.RunAsync(() =>
+        {
+            var success = vaultService.TryUnlockWithGoogleAuthenticator(code, out var message);
+            return new VaultUnlockResult(success ? VaultUnlockStatus.Unlocked : VaultUnlockStatus.Failed, message);
+        }, cancellationToken).ConfigureAwait(false);
+        if (result.Success) FlowState = AppFlowState.Unlocked;
+        return result;
+    }
+
+    public void BeginNewVault() => FlowState = AppFlowState.CreateMasterPassword;
+
+    public void BeginRecovery() => FlowState = AppFlowState.Recover;
+
+    public void ReturnToFirstLaunch() => FlowState = AppFlowState.FirstLaunch;
+
+    public AuthenticatorSetup PrepareAuthenticator(string masterPassword, string confirmation)
+    {
+        MasterPasswordService.ValidateNewMasterPassword(masterPassword);
+        if (!string.Equals(masterPassword, confirmation, StringComparison.Ordinal))
+            throw new ArgumentException("The Master Password values do not match.", nameof(confirmation));
+
+        var secret = totpService.GenerateSecret();
+        FlowState = AppFlowState.SetupAuthenticator;
+        return new AuthenticatorSetup(
+            secret,
+            totpService.CreateOtpAuthUri(secret, "PasswordTool", Environment.UserName));
+    }
+
+    public AuthenticatorSetup CreateAuthenticatorSetup()
+    {
+        var secret = totpService.GenerateSecret();
+        return new AuthenticatorSetup(
+            secret,
+            totpService.CreateOtpAuthUri(secret, "PasswordTool", Environment.UserName));
+    }
+
+    public Task<VaultBackupInspection> InspectRecoveryBackupAsync(
+        string backupPath,
+        string passphrase,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => vaultService.InspectBackupJson(ReadBoundedBackupFile(backupPath), passphrase),
+            cancellationToken);
+
+    public async Task CompleteNewVaultAsync(
+        string masterPassword,
+        AuthenticatorSetup setup,
+        string confirmationCode,
+        CancellationToken cancellationToken = default)
+    {
+        await operations.RunAsync(
+            () => vaultService.InitializeNewVault(masterPassword, setup.SecretBase32, confirmationCode),
+            cancellationToken).ConfigureAwait(false);
+        FlowState = AppFlowState.Unlocked;
+    }
+
+    public async Task CompleteRecoveryAsync(
+        string backupPath,
+        string backupPassphrase,
+        string masterPassword,
+        AuthenticatorSetup setup,
+        string confirmationCode,
+        CancellationToken cancellationToken = default)
+    {
+        await operations.RunAsync(() => vaultService.RecoverFromBackup(new VaultRecoveryRequest
+        {
+            BackupJson = ReadBoundedBackupFile(backupPath),
+            BackupPassphrase = backupPassphrase,
+            NewMasterPassword = masterPassword,
+            NewTotpSecretBase32 = setup.SecretBase32,
+            TotpConfirmationCode = confirmationCode
+        }), cancellationToken).ConfigureAwait(false);
+        FlowState = AppFlowState.Unlocked;
+    }
+
+    public async Task LockAsync(CancellationToken cancellationToken = default)
+    {
+        await operations.RunAsync(vaultService.ClearSession, cancellationToken).ConfigureAwait(false);
+        FlowState = AppFlowState.Unlock;
+    }
+
+    public Task<IReadOnlyList<VaultItemListItem>> GetListItemsAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => (IReadOnlyList<VaultItemListItem>)vaultService.GetItems().Select(VaultItemListItem.FromVaultItem).ToList(), cancellationToken);
+
+    public Task<TimeSpan> GetInactivityTimeoutAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => TimeSpan.FromMinutes(vaultService.SecuritySettings.InactivityLockTimeoutMinutes),
+            cancellationToken);
+
+    public Task<bool> IsSensitiveSessionActiveAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.IsSensitiveSessionActive, cancellationToken);
+
+    public Task<VaultItem> GetItemForEditingAsync(
+        Guid id,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetItemForEditing(id, totpCode), cancellationToken);
+
+    public Task AddItemAsync(VaultItem item, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.AddItem(item), cancellationToken);
+
+    public Task UpdateItemAsync(VaultItem item, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.UpdateItem(item), cancellationToken);
+
+    public Task DeleteItemAsync(Guid id, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.DeleteItem(id), cancellationToken);
+
+    public Task<string> GetUsernameAsync(Guid id, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetUsername(id), cancellationToken);
+
+    public Task<string> GetPasswordAsync(
+        Guid id,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetPassword(id, totpCode), cancellationToken);
+
+    public Task<IReadOnlyList<string>> GetRecoveryCodesAsync(
+        Guid id,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetRecoveryCodes(id, totpCode), cancellationToken);
+
+    public Task<TotpCodeResult> GetWebsiteTotpCodeAsync(
+        Guid id,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetWebsiteTotpCode(id, totpCode), cancellationToken);
+
+    public Task<IReadOnlyList<PasswordHistoryEntry>> GetPasswordHistoryAsync(
+        Guid id,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetPasswordHistory(id, totpCode), cancellationToken);
+
+    public Task<IReadOnlyList<TrashItemListItem>> GetDeletedItemsAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => (IReadOnlyList<TrashItemListItem>)vaultService.GetDeletedItems().Select(TrashItemListItem.FromVaultItem).ToList(),
+            cancellationToken);
+
+    public Task RestoreDeletedItemAsync(Guid id, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.RestoreDeletedItem(id), cancellationToken);
+
+    public Task PermanentlyDeleteItemAsync(
+        Guid id,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.PermanentlyDeleteItem(id, totpCode), cancellationToken);
+
+    public Task<SettingsSnapshot> GetSettingsAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() =>
+        {
+            var security = vaultService.SecuritySettings;
+            return new SettingsSnapshot(
+                vaultService.LoginMode,
+                security.InactivityLockTimeoutMinutes,
+                security.SensitiveActionTimeoutMinutes,
+                vaultService.NeedsKdfUpgrade,
+                vaultService.LastExternalBackupAt,
+                vaultService.LastVerifiedBackupAt);
+        }, cancellationToken);
+
+    public Task<OperationResult> UpdateSettingsAsync(
+        string masterPassword,
+        VaultLoginMode loginMode,
+        int inactivityTimeoutMinutes,
+        int sensitiveActionTimeoutMinutes,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() =>
+        {
+            var success = vaultService.TryUpdateSettings(
+                masterPassword,
+                loginMode,
+                new VaultSecuritySettings(inactivityTimeoutMinutes, sensitiveActionTimeoutMinutes),
+                out var message);
+            return new OperationResult(success, message);
+        }, cancellationToken);
+
+    public Task<OperationResult> ChangeMasterPasswordAsync(
+        string currentMasterPassword,
+        string newMasterPassword,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() =>
+        {
+            var success = vaultService.TryChangeMasterPassword(currentMasterPassword, newMasterPassword, out var message);
+            return new OperationResult(success, message);
+        }, cancellationToken);
+
+    public Task<OperationResult> UpgradeKdfAsync(
+        string masterPassword,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() =>
+        {
+            var success = vaultService.TryUpgradeKdf(masterPassword, out var message);
+            return new OperationResult(success, message);
+        }, cancellationToken);
+
+    public Task<OperationResult> ResetAuthenticatorAsync(
+        string masterPassword,
+        AuthenticatorSetup setup,
+        string confirmationCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() =>
+        {
+            var success = vaultService.TryResetAuthenticator(
+                masterPassword,
+                setup.SecretBase32,
+                confirmationCode,
+                out var message);
+            return new OperationResult(success, message);
+        }, cancellationToken);
+
+    public Task CreateExternalBackupAsync(
+        string destinationPath,
+        string passphrase,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.CreateExternalBackupFile(destinationPath, passphrase, totpCode), cancellationToken);
+
+    public Task<VaultBackupInspection> VerifyExternalBackupAsync(
+        string path,
+        string passphrase,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.VerifyExternalBackupFile(path, passphrase), cancellationToken);
+
+    public Task<VaultBackupImportPlan> PreviewBackupImportAsync(
+        string path,
+        string passphrase,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => vaultService.PreviewBackupImport(ReadBoundedFile(path, VaultBackupService.MaxBackupJsonCharacters), passphrase, totpCode),
+            cancellationToken);
+
+    public Task<int> ImportBackupAsync(
+        string path,
+        string passphrase,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => vaultService.ImportBackupJson(ReadBoundedFile(path, VaultBackupService.MaxBackupJsonCharacters), passphrase, totpCode),
+            cancellationToken);
+
+    public Task<VaultCsvImportPlan> PreviewCsvImportAsync(
+        string path,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => vaultService.PreviewCsvImport(ReadBoundedFile(path, VaultCsvImportService.MaxCsvCharacters), totpCode),
+            cancellationToken);
+
+    public Task<int> ImportCsvAsync(
+        string path,
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => vaultService.ImportCsv(ReadBoundedFile(path, VaultCsvImportService.MaxCsvCharacters), totpCode),
+            cancellationToken);
+
+    public Task<IReadOnlyList<VaultSnapshotInfo>> GetSnapshotsAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetSnapshots(), cancellationToken);
+
+    public Task<IReadOnlyList<VaultSecurityFinding>> GetSecurityFindingsAsync(
+        string totpCode,
+        CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.GetSecurityFindings(totpCode), cancellationToken);
+
+    public async Task<OperationResult> RestoreSnapshotAsync(
+        string snapshotId,
+        string masterPassword,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await operations.RunAsync(() =>
+        {
+            var success = vaultService.TryRestoreSnapshot(snapshotId, masterPassword, out var message);
+            return new OperationResult(success, message);
+        }, cancellationToken).ConfigureAwait(false);
+        if (result.Success) FlowState = AppFlowState.Unlock;
+        return result;
+    }
+
+    private static string ReadBoundedBackupFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("A backup file is required.", nameof(path));
+        var info = new FileInfo(path);
+        if (info.Length > VaultBackupService.MaxBackupJsonCharacters)
+            throw new InvalidDataException("The selected backup exceeds the 10 MB limit.");
+        return File.ReadAllText(path);
+    }
+
+    private static string ReadBoundedFile(string path, int maximumCharacters)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("A file is required.", nameof(path));
+        var info = new FileInfo(path);
+        if (info.Length > maximumCharacters) throw new InvalidDataException("The selected file exceeds the 10 MB limit.");
+        var content = File.ReadAllText(path);
+        if (content.Length > maximumCharacters) throw new InvalidDataException("The selected file exceeds the 10 MB limit.");
+        return content;
+    }
+}

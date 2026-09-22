@@ -2,6 +2,8 @@
 
 > A local Windows vault for passwords, website TOTP codes, and recovery codes, plus a password-hash utility. Vault data stays on the device; the application has no database, cloud sync, account system, telemetry, or runtime network dependency.
 
+The desktop application is implemented exclusively with WinUI 3. The former WinForms client and its UI-preview project were removed during the migration cutover.
+
 ## What is included
 
 | Area | What it does |
@@ -22,7 +24,7 @@
 The recommended way to use PasswordTool is to download an approved Windows x64 release from the [GitHub Releases page](https://github.com/Lmnhutw/PasswordTool.Core/releases). A release may provide either or both of these packages:
 
 - **Installer (`.exe`)** — the easiest option. It installs PasswordTool for the current Windows user, adds a Start Menu shortcut, and does not require administrator access.
-- **Portable ZIP** — extract the complete ZIP to a folder you control, then run `PasswordTool.WinForms.exe`. Do not run the executable from inside the ZIP or copy only the `.exe` out of its folder.
+- **Portable ZIP** — extract the complete ZIP to a folder you control, then run `PasswordTool.WinUI.exe`. Do not run the executable from inside the ZIP or copy only the `.exe` out of its folder.
 
 Before running a downloaded build:
 
@@ -98,7 +100,7 @@ Clone the repository, or extract a ZIP so that `PasswordTool.slnx` is in the cur
 git clone <repository-url>
 cd PasswordTool.Core
 dotnet restore PasswordTool.slnx
-dotnet run --project src\PasswordTool.WinForms\PasswordTool.WinForms.csproj
+dotnet run --project src\PasswordTool.WinUI\PasswordTool.WinUI.csproj --configuration Debug -p:Platform=x64
 ```
 
 Building from source is intended for developers. It does not establish that a local build is an approved, signed release. On first launch, follow the setup flow above.
@@ -225,7 +227,7 @@ It has no authentication, rate limiting, or production hardening today. Do not e
 
 ## Windows releases
 
-PasswordTool supports Windows x64. The release workflow publishes a deterministic .NET 10, self-contained, single-file WinForms payload, so end-user machines do not need a separately installed .NET runtime. It has no runtime network, update, telemetry, account, or cloud dependency.
+PasswordTool supports Windows x64. The release workflow publishes a deterministic .NET 10, unpackaged, self-contained, single-file WinUI 3 payload, so end-user machines do not need a separately installed .NET runtime or Windows App SDK runtime. It has no runtime network, update, telemetry, account, or cloud dependency.
 
 Create an unsigned developer/test release with a new numeric `major.minor.patch` version:
 
@@ -254,10 +256,12 @@ For signing configuration, checksum/signature verification, qualification outcom
 ```text
 src/
   PasswordTool.Core/       # cryptography, vault workflows, hash implementations
-  PasswordTool.WinForms/   # local Windows interface
+  PasswordTool.Presentation/ # platform-neutral MVVM state and orchestration
+  PasswordTool.WinUI/      # local WinUI 3 Windows interface
   PasswordTool.Api/        # optional Minimal API for hash operations
 tests/
   PasswordTool.Core.Tests/ # core behavior and security-rule tests
+  PasswordTool.Presentation.Tests/ # MVVM and orchestration tests
 docs/
   architecture.md          # boundaries, data flows, and developer rules
 ```

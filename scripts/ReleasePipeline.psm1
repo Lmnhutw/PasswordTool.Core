@@ -50,7 +50,7 @@ function Assert-PublishedPayload {
         throw "Published payload directory '$publishPath' was not created."
     }
 
-    $expectedExecutable = Join-Path $publishPath 'PasswordTool.WinForms.exe'
+    $expectedExecutable = Join-Path $publishPath 'PasswordTool.WinUI.exe'
     if (-not (Test-Path -LiteralPath $expectedExecutable -PathType Leaf)) {
         throw "Expected published executable '$expectedExecutable' is missing."
     }
@@ -61,7 +61,7 @@ function Assert-PublishedPayload {
     }
 
     $forbiddenFileNames = @('.config', '.storage', '.trusted-unlock')
-    $forbiddenExtensions = @('.cs', '.csproj', '.sln', '.slnx', '.pfx', '.p12', '.snk', '.log', '.bak', '.backup', '.db', '.sqlite')
+    $forbiddenExtensions = @('.cs', '.csproj', '.sln', '.slnx', '.pdb', '.pfx', '.p12', '.snk', '.log', '.bak', '.backup', '.db', '.sqlite')
     $forbiddenSegments = @('.snapshots', 'PasswordTool.Api', 'tests', '.git')
 
     foreach ($file in $files) {
@@ -229,7 +229,7 @@ function Invoke-InnoSetupBuild {
     New-Item -ItemType Directory -Path $installerDirectory -ErrorAction Stop | Out-Null
     $safeInstallerDirectory = Assert-PathWithinRoot -Path $installerDirectory -Root $OutputRoot
 
-    & $iscc.Source "/DAppVersion=$Version" "/DSourceDir=$safePublishDirectory" "/DOutputDir=$safeInstallerDirectory" $InstallerScriptPath
+    & $iscc.Source "/DAppVersion=$Version" "/DSourceDir=$safePublishDirectory" "/DOutputDir=$safeInstallerDirectory" $InstallerScriptPath | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw 'Inno Setup compilation failed.'
     }

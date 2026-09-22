@@ -39,15 +39,22 @@ New-Item -ItemType Directory -Path $workingDirectory -ErrorAction Stop | Out-Nul
 $safeWorkingDirectory = Assert-PathWithinRoot -Path $workingDirectory -Root $safeArtifactsRoot
 $publishDirectory = Join-Path $safeWorkingDirectory 'publish'
 
-$projectPath = Join-Path $repositoryRoot 'src\PasswordTool.WinForms\PasswordTool.WinForms.csproj'
+$projectPath = Join-Path $repositoryRoot 'src\PasswordTool.WinUI\PasswordTool.WinUI.csproj'
 & dotnet publish $projectPath --configuration Release --runtime win-x64 --self-contained true --output $publishDirectory `
     '-p:PasswordToolReleasePublish=true' `
+    '-p:Platform=x64' `
     "-p:Version=$Version" `
     '-p:ContinuousIntegrationBuild=true' `
     '-p:Deterministic=true'
 if ($LASTEXITCODE -ne 0) {
     throw 'dotnet publish failed; no release directory was finalized.'
 }
+
+# Symbols are useful in CI output but are not part of the portable single-file
+# distribution and can reveal local build paths. Remove only generated PDBs from
+# this newly-created staging directory before payload qualification.
+Get-ChildItem -LiteralPath $publishDirectory -Recurse -Force -File -Filter '*.pdb' |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop }
 
 $payload = Assert-PublishedPayload -PublishDirectory $publishDirectory -OutputRoot $safeWorkingDirectory -MaximumPayloadSizeMB $MaximumPayloadSizeMB
 $signingConfiguration = Get-SigningConfiguration -SigningMode $SigningMode

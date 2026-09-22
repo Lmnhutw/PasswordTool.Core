@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "PasswordTool.WinUI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "PasswordTool.WinUI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

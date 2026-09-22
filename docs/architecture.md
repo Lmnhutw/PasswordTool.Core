@@ -5,12 +5,14 @@
 PasswordTool is a local Windows vault for passwords, website TOTP secrets, and recovery codes, plus a password-hash utility. It deliberately has no account system, database, cloud sync, telemetry, or vault API.
 
 ```text
-PasswordTool.WinForms ─┐
-                       ├──> PasswordTool.Core <── PasswordTool.Core.Tests
-PasswordTool.Api ──────┘
+PasswordTool.WinUI ──> PasswordTool.Presentation ──> PasswordTool.Core <── PasswordTool.Core.Tests
+                              └── PasswordTool.Presentation.Tests
+PasswordTool.Api ─────────────────────────> PasswordTool.Core
 ```
 
-`PasswordTool.Core` owns cryptography, validation, and domain workflows. WinForms owns user interaction. The API owns HTTP-specific DTOs and responses. Neither UI nor API may implement encryption, key derivation, TOTP verification, backup parsing, or password-hash algorithms.
+`PasswordTool.Core` owns cryptography, validation, and domain workflows. `PasswordTool.Presentation` owns platform-neutral MVVM state, commands, secret-free list projections, and serialized orchestration of synchronous Core operations. WinUI owns XAML, native controls, window lifecycle, and Windows-specific adapters. The API owns HTTP-specific DTOs and responses. Neither UI, Presentation, nor API may implement encryption, key derivation, TOTP verification, backup parsing, or password-hash algorithms.
+
+The WinUI client is currently an unpackaged, self-contained x64 application. It sets the Windows App SDK bootstrap properties before the SDK targets are imported, uses the undocked registration-free initializer, and disables the packaged deployment-manager initializer. Do not move those properties to `Directory.Build.targets`; that import is too late for initializer selection.
 
 ## Vault lifecycle
 
@@ -63,10 +65,10 @@ Config and vault writes are one logical state transition: stage and read back bo
 - Password and passphrase generation uses `RandomNumberGenerator`; no generated secret is logged or persisted until the user saves the item.
 - Password changes keep at most 10 encrypted history entries. Soft-deleted items are excluded from normal queries and are purged after 30 days.
 - UpdatedAt is general item metadata. PasswordChangedAt is nullable/version-tolerant lifecycle metadata for active password items only: new/imported passwords and password changes set it from the logical mutation timestamp; non-password edits, Trash, config changes, and key/KDF rewrites do not. Recovery-code conversion clears it and password history. Older payloads resolve an effective date from newest valid history, UpdatedAt, then CreatedAt; dates after the current UTC operation time are invalid and cannot postpone an old-password finding. Unlock normalizes this in memory without saving solely because the vault opened.
-- Local Security Check scans active password values in memory only, using exact ordinal reuse comparison and the existing strength estimator. Findings are secret-free and ordered by type, title, then ID. Passwords at least 365 days old (including the exact boundary) are old. WinForms receives findings and returns only a selected item ID; VaultForm performs its existing protected edit and reruns the scan.
+- Local Security Check scans active password values in memory only, using exact ordinal reuse comparison and the existing strength estimator. Findings are secret-free and ordered by type, title, then ID. Passwords at least 365 days old (including the exact boundary) are old. WinUI receives findings and routes only the selected item ID through the protected editor workflow before rerunning the scan.
 - Local Security Check runs only against decrypted in-memory data and returns item metadata plus finding type, never a password value.
 - The desktop process enforces one instance and locks after the configured 1–120 minute inactivity window (10 minutes by default).
-- WinForms subscribes only while the vault window is open to Windows session-switch and power-mode events. Session lock, console/remote disconnect, suspend, and resume close the vault window; its close path clears decrypted items, the vault key, the Authenticator secret, and sensitive-action authorization before showing the unlock flow again.
+- WinUI subscribes only while the vault is unlocked to Windows session-switch and power-mode events. Session lock, console/remote disconnect, suspend, and resume lock the vault; the lock path clears decrypted items, the vault key, the Authenticator secret, sensitive-action authorization, navigation history, editor fields, and PasswordTool-owned clipboard content before showing the unlock flow again.
 - Security timeout and sign-in-mode changes are one Master-Password-authorized config update. Persisted timeout values are validated in Core before use; older configs inherit the secure defaults through version-tolerant property initialization.
 
 ## Password hashing
@@ -79,9 +81,16 @@ Use random salts per secure hash and constant-time comparison for verification. 
 
 `PasswordTool.Api` currently implements `/hash`, `/verify`, `/inspect`, and `/algorithms` below `/api/password`. It does not expose vault operations. HTTPS redirection is configured, but authentication, authorization, rate limiting, request-size limits, audit policy, and an educational-algorithm block are not yet implemented. It must remain local/trusted-development-only until those controls are explicitly added.
 
+## WinUI presentation boundary
+
+- The WinUI shell must never receive decrypted secret values for list rows. It requests sensitive values only at the point of an authorized reveal or edit operation.
+- `VaultOperationRunner` is the single serialized boundary for synchronous vault calls made by WinUI ViewModels. UI-thread blocking and overlapping vault mutations are prohibited.
+- Windows-specific navigation, dialogs, file pickers, clipboard handling, session/power monitoring, and window behavior implement contracts owned by Presentation or are kept in the WinUI project.
+- A first-launch or recovery flow may not silently fall through to ordinary unlock. The coordinator's explicit state machine remains the source of truth.
+
 ## Release qualification boundary
 
-The Windows release path publishes only `PasswordTool.WinForms` plus `PasswordTool.Core`; `PasswordTool.Api` is never a desktop artifact. Phase 5 qualification is implemented as read-only PowerShell validation around the finalized Phase 4 directory. It recalculates hashes, compares the portable ZIP with the publish payload, enforces a public-only manifest, independently verifies any signed claim, and checks the existing offline/build/installer source contracts. It does not add runtime code, networking, storage, or a release service, and it never establishes release readiness when controlled-machine manual scenarios remain incomplete.
+The Windows release path publishes only `PasswordTool.WinUI` and its Presentation/Core dependencies; `PasswordTool.Api` is never a desktop artifact. Qualification is implemented as read-only PowerShell validation around the finalized release directory. It recalculates hashes, compares the portable ZIP with the publish payload, enforces a public-only manifest, independently verifies any signed claim, and checks the existing offline/build/installer source contracts. It does not add runtime code, networking, storage, or a release service, and it never establishes release readiness when controlled-machine manual scenarios remain incomplete.
 
 ## Security rules for future changes
 

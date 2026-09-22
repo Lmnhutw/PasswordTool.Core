@@ -127,7 +127,7 @@ public sealed class PasswordGeneratorService
     private static string GetRating(double entropyBits) => entropyBits switch
     {
         < 40 => "Weak",
-        < 60 => "Fair",
+        < 60 => "Normal",
         < 80 => "Good",
         _ => "Strong"
     };

@@ -1,44 +1,54 @@
 # Frontend Structure Contract
 
-> Source of truth for presentation structure and naming in the WinForms client.
+> Source of truth for presentation structure and naming in the WinUI desktop client.
 
 ## Scope
 
-- Frontend root: `src/PasswordTool.WinForms`
-- Framework: .NET Windows Forms
-- Styling system: code-based WinForms controls with the shared `UiTheme`
-- Applies to: all forms, dialogs, menus, status surfaces, and grids in the Windows client
+- Frontend root: `src/PasswordTool.WinUI`
+- Presentation root: `src/PasswordTool.Presentation`
+- Framework: WinUI 3 with Windows App SDK
+- Styling system: XAML resources and native WinUI controls
+- Applies to: all windows, pages, forms, dialogs, navigation, status surfaces, and lists in the Windows clients
 
 ## Naming Convention
 
 - Name controls and helpers by responsibility, such as `sensitiveSessionPanel` or `folderFilterComboBox`.
 - Do not name controls after coordinates, colors, or incidental visual appearance.
-- Use `*Form` for top-level windows and `Create*`, `Configure*`, `Style*`, or `Update*` for focused presentation helpers.
-- This client has no CSS or DOM, so CSS/BEM naming does not apply.
+- Use `*Page` for navigable surfaces and `*Window` for top-level WinUI windows.
+- Name ViewModels `*ViewModel`, platform contracts `I*Service` or by a focused capability, and native adapters after the contract they implement.
+- Neither client has CSS or a DOM, so CSS/BEM naming does not apply.
 
 ## Ownership
 
 | Area | Responsibility | Location |
 | --- | --- | --- |
-| Shared visual language | Color, typography, button, menu, input, and grid styling | `src/PasswordTool.WinForms/UiTheme.cs` |
-| Vault workspace | Header, commands, filters, security status, credential grid, and status bar | `src/PasswordTool.WinForms/VaultForm.cs` |
-| Authentication | Available login methods and credential input state | `src/PasswordTool.WinForms/UnlockVaultForm.cs` |
-| Feature dialogs | Feature-specific layout and interaction only | matching `*Form.cs` file |
+| Shared visual language | Spacing, typography, cards, and theme-aware resources | `src/PasswordTool.WinUI/Themes/Styles.xaml` |
+| Vault workspace | Header, commands, filters, security status, and virtualized credential list | `src/PasswordTool.WinUI/MainPage.xaml` |
+| Authentication | Explicit first-launch, recovery, setup, and unlock states | `src/PasswordTool.WinUI/MainPage.xaml` |
+| Feature dialogs | Short-lived, native modal interactions only | focused WinUI dialog service |
+| Platform-neutral UI state | MVVM state, commands, routes, and secret-free list projections | `src/PasswordTool.Presentation` |
+| WinUI shell | Navigation, authentication surface, feature pages, native resources | `src/PasswordTool.WinUI` |
+| WinUI platform adapters | Dialogs, file pickers, guarded clipboard, session/power events | `src/PasswordTool.WinUI` |
 
 ## Layout Rules
 
-- Set DPI scaling before building controls; a theme helper must not change a form's scaling mode after layout exists.
-- Prefer `TableLayoutPanel`, docking, anchoring, and adequate logical row heights over fixed coordinates.
+- Use effective-pixel layout, adaptive states, and the system DPI scale; do not apply manual pixel scaling to XAML controls.
 - A disabled feature must disable every related input and remain understandable through text, not color alone.
-- Keep the credential grid as the main Vault surface; secondary commands belong in menus.
-- Forms own layout. `UiTheme` owns reusable visual styling and must not contain business or security logic.
+- Keep the virtualized credential list as the main Vault surface; secondary commands belong in the command bar or navigation.
+- Pages own layout. Shared XAML resources own reusable visual styling and must not contain business or security logic.
 - Use the Windows-native title bar, focus behavior, modal behavior, and system dialogs.
+- In WinUI, use native `NavigationView`, `ListView`/`ItemsRepeater`, `InfoBar`, and system pickers where their behavior fits the task.
+- Keep list rows virtualized and secret-free. Do not place password, recovery-code, TOTP-secret, or key material in bound list-item objects.
+- Use explicit loading, first-launch, recovery, unlock, unlocked, empty, and error states; never infer security state from control visibility alone.
+- Preserve keyboard navigation, visible focus, accessible names, 200% scaling, high contrast, and light/dark theme behavior.
 
 ## Component Boundaries
 
 - Extract a helper only for repeated styling or a meaningful layout responsibility.
-- Do not build a new UI framework around WinForms or duplicate service behavior in presentation code.
+- Do not build a custom control framework or duplicate service behavior in presentation code.
 - Security authorization, vault storage, encryption, clipboard lifecycle, and timeout policy remain outside the theme and layout layer.
+- Presentation may coordinate Core services but must not reference WinUI. WinUI may reference Presentation and Core only through composition and platform adapters.
+- Synchronous vault operations must cross the serialized background-operation boundary before returning results to the UI thread.
 
 ## Cross-Skill Rule
 

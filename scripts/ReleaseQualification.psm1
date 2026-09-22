@@ -401,32 +401,38 @@ function Assert-ReleaseBuildAndOfflineContract {
         $releaseProperties[0].RuntimeIdentifier -cne 'win-x64' -or
         $releaseProperties[0].SelfContained -cne 'true' -or
         $releaseProperties[0].PublishSingleFile -cne 'true' -or
+        $releaseProperties[0].IncludeAllContentForSelfExtract -cne 'true' -or
         $releaseProperties[0].PublishTrimmed -cne 'false' -or
         $releaseProperties[0].DebugSymbols -cne 'false') {
         throw 'Release build properties no longer define the expected self-contained, single-file win-x64 payload.'
     }
 
-    $winFormsProjectPath = Join-Path $RepositoryRoot 'src\PasswordTool.WinForms\PasswordTool.WinForms.csproj'
-    [xml]$winFormsProject = Get-Content -LiteralPath $winFormsProjectPath -Raw
-    $targetFrameworks = @($winFormsProject.SelectNodes('/Project/PropertyGroup/TargetFramework') | ForEach-Object InnerText)
-    $useWindowsForms = @($winFormsProject.SelectNodes('/Project/PropertyGroup/UseWindowsForms') | ForEach-Object InnerText)
-    $projectReferences = @($winFormsProject.SelectNodes('/Project/ItemGroup/ProjectReference') | ForEach-Object { $_.GetAttribute('Include') })
-    if ($targetFrameworks.Count -ne 1 -or $targetFrameworks[0] -cne 'net10.0-windows' -or
-        $useWindowsForms.Count -ne 1 -or $useWindowsForms[0] -cne 'true' -or
-        $projectReferences.Count -ne 1 -or $projectReferences[0] -cne '..\PasswordTool.Core\PasswordTool.Core.csproj') {
-        throw 'WinForms release project must remain .NET 10 Windows and reference only PasswordTool.Core.'
+    $winUiProjectPath = Join-Path $RepositoryRoot 'src\PasswordTool.WinUI\PasswordTool.WinUI.csproj'
+    [xml]$winUiProject = Get-Content -LiteralPath $winUiProjectPath -Raw
+    $targetFrameworks = @($winUiProject.SelectNodes('/Project/PropertyGroup/TargetFramework') | ForEach-Object InnerText)
+    $targetPlatformMinimums = @($winUiProject.SelectNodes('/Project/PropertyGroup/TargetPlatformMinVersion') | ForEach-Object InnerText)
+    $useWinUi = @($winUiProject.SelectNodes('/Project/PropertyGroup/UseWinUI') | ForEach-Object InnerText)
+    $enableMsixTooling = @($winUiProject.SelectNodes('/Project/PropertyGroup/EnableMsixTooling') | ForEach-Object InnerText)
+    $projectReferences = @($winUiProject.SelectNodes('/Project/ItemGroup/ProjectReference') | ForEach-Object { $_.GetAttribute('Include') })
+    if ($targetFrameworks.Count -ne 1 -or $targetFrameworks[0] -cne 'net10.0-windows10.0.26100.0' -or
+        $targetPlatformMinimums.Count -ne 1 -or $targetPlatformMinimums[0] -cne '10.0.17763.0' -or
+        $useWinUi.Count -ne 1 -or $useWinUi[0] -cne 'true' -or
+        $enableMsixTooling.Count -ne 1 -or $enableMsixTooling[0] -cne 'true' -or
+        $projectReferences.Count -ne 1 -or $projectReferences[0] -cne '..\PasswordTool.Presentation\PasswordTool.Presentation.csproj') {
+        throw 'WinUI release project must remain .NET 10 Windows, target the supported Windows baseline, and reference only PasswordTool.Presentation.'
     }
 
     $publishScript = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'scripts\Publish-WindowsRelease.ps1') -Raw
-    if ($publishScript -notmatch [regex]::Escape("src\PasswordTool.WinForms\PasswordTool.WinForms.csproj") -or
+    if ($publishScript -notmatch [regex]::Escape("src\PasswordTool.WinUI\PasswordTool.WinUI.csproj") -or
         $publishScript -match 'PasswordTool\.Api' -or
         @([regex]::Matches($publishScript, '(?im)^\s*&\s*dotnet\s+publish\b')).Count -ne 1) {
-        throw 'Release publishing must target only PasswordTool.WinForms and must not include PasswordTool.Api.'
+        throw 'Release publishing must target only PasswordTool.WinUI and must not include PasswordTool.Api.'
     }
 
     $sourceRoots = @(
         (Join-Path $RepositoryRoot 'src\PasswordTool.Core'),
-        (Join-Path $RepositoryRoot 'src\PasswordTool.WinForms')
+        (Join-Path $RepositoryRoot 'src\PasswordTool.Presentation'),
+        (Join-Path $RepositoryRoot 'src\PasswordTool.WinUI')
     )
     $networkOrLoggingPattern = '(?i)using\s+System\.Net|\bHttpClient\b|\bIHttpClientFactory\b|\bWebRequest\b|\bWebClient\b|\bClientWebSocket\b|\bTcpClient\b|\bUdpClient\b|\bGrpcChannel\b|\bApplicationInsights\b|\bSentry\b|\bAutoUpdater\b|\bUpdateManager\b|\bILogger(?:<|\b)|\bLogInformation\s*\(|\bLogDebug\s*\(|\bTrace\.Write|\bDebug\.Write|\bConsole\.Write'
     foreach ($sourceRoot in $sourceRoots) {
@@ -510,8 +516,12 @@ function Assert-InstallerTemplateContract {
         throw 'Inno Setup must contain only the validated SourceDir payload.'
     }
     $iconLines = @(Get-InnoSectionLines -Lines $lines -SectionName 'Icons')
-    if ($iconLines.Count -ne 1 -or $iconLines[0] -cne 'Name: "{group}\PasswordTool"; Filename: "{app}\PasswordTool.WinForms.exe"') {
+    if ($iconLines.Count -ne 1 -or $iconLines[0] -cne 'Name: "{group}\PasswordTool"; Filename: "{app}\PasswordTool.WinUI.exe"') {
         throw 'Inno Setup must create the expected PasswordTool Start Menu entry.'
+    }
+    $runLines = @(Get-InnoSectionLines -Lines $lines -SectionName 'Run')
+    if ($runLines.Count -ne 1 -or $runLines[0] -cne 'Filename: "{app}\PasswordTool.WinUI.exe"; Description: "Launch PasswordTool"; Flags: nowait postinstall skipifsilent') {
+        throw 'Inno Setup must launch only the expected PasswordTool WinUI executable.'
     }
     if (@(Get-InnoSectionLines -Lines $lines -SectionName 'UninstallDelete').Count -ne 0) {
         throw 'Inno Setup must not delete vault data or any path outside the application binaries.'
