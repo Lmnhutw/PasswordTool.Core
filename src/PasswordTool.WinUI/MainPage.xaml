@@ -9,6 +9,7 @@
     xmlns:models="using:PasswordTool.Core.Models"
     xmlns:presentation="using:PasswordTool.Presentation"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    KeyboardAcceleratorPlacementMode="Hidden"
     mc:Ignorable="d">
 
     <Page.KeyboardAccelerators>
