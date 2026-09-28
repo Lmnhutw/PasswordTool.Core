@@ -208,16 +208,21 @@ public sealed class VaultBackupService
             item.RecoveryCodes ??= [];
             if (item.Type == VaultItemType.Password)
             {
-                ValidateLength(item.Password, MaxPasswordLength, "password", required: true);
+                ValidateLength(item.Password, MaxPasswordLength, "password");
+                if (string.IsNullOrWhiteSpace(item.Password) && item.RecoveryCodes.Count < 2)
+                {
+                    throw new InvalidDataException($"Item '{item.Title}' requires a password or at least two recovery codes.");
+                }
                 if (item.PasswordHistory.Count > MaxPasswordHistoryEntries
                     || item.PasswordHistory.Any(entry => entry is null || string.IsNullOrEmpty(entry.Password)
                         || entry.Password.Length > MaxPasswordLength))
                 {
                     throw new InvalidDataException($"Password item '{item.Title}' contains invalid password history.");
                 }
-                if (item.RecoveryCodes.Count != 0)
+                if (string.IsNullOrEmpty(item.Password)
+                    && (item.PasswordHistory.Count != 0 || item.PasswordChangedAt.HasValue))
                 {
-                    throw new InvalidDataException($"Password item '{item.Title}' contains recovery-code data.");
+                    throw new InvalidDataException($"Item '{item.Title}' contains password metadata without a password.");
                 }
 
                 if (!string.IsNullOrEmpty(item.TotpSecretBase32)
@@ -225,6 +230,7 @@ public sealed class VaultBackupService
                 {
                     throw new InvalidDataException($"Password item '{item.Title}' contains an invalid TOTP secret.");
                 }
+                ValidateRecoveryCodes(item);
             }
             else
             {
@@ -236,19 +242,26 @@ public sealed class VaultBackupService
                     throw new InvalidDataException($"Recovery-code item '{item.Title}' contains password or TOTP data.");
                 }
 
-                var parsedCodes = RecoveryCodeParser.Parse(string.Join('\n', item.RecoveryCodes));
-                if (item.RecoveryCodes.Count > MaxRecoveryCodes
-                    || item.RecoveryCodes.Any(code => code.Length > MaxRecoveryCodeLength)
-                    || !parsedCodes.IsValid)
-                {
-                    throw new InvalidDataException($"Recovery-code item '{item.Title}' contains an invalid code list.");
-                }
+                ValidateRecoveryCodes(item);
             }
 
             if (item.IsDeleted != item.DeletedAt.HasValue)
             {
                 throw new InvalidDataException($"Item '{item.Title}' has inconsistent trash metadata.");
             }
+        }
+    }
+
+    private static void ValidateRecoveryCodes(VaultItem item)
+    {
+        if (item.RecoveryCodes.Count == 0) return;
+        var parsedCodes = RecoveryCodeParser.Parse(string.Join('\n', item.RecoveryCodes));
+        if (item.RecoveryCodes.Count < 2
+            || item.RecoveryCodes.Count > MaxRecoveryCodes
+            || item.RecoveryCodes.Any(code => code.Length > MaxRecoveryCodeLength)
+            || !parsedCodes.IsValid)
+        {
+            throw new InvalidDataException($"Item '{item.Title}' contains an invalid code list.");
         }
     }
 

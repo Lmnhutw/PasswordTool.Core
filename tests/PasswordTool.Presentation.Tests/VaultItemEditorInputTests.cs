@@ -6,13 +6,13 @@ namespace PasswordTool.Presentation.Tests;
 public sealed class VaultItemEditorInputTests
 {
     [Fact]
-    public void ToVaultItem_Password_KeepsPasswordFieldsAndNormalizesTags()
+    public void ToVaultItem_Credential_KeepsPasswordAndRecoveryCodesAndNormalizesTags()
     {
-        var input = CreateInput(VaultItemType.Password) with
+        var input = CreateInput() with
         {
             Password = "secret",
             TotpSecretBase32 = "JBSWY3DPEHPK3PXP",
-            RecoveryCodesText = "ignored-one\nignored-two",
+            RecoveryCodesText = "alpha-1234\nbeta-5678",
             TagsText = "Work, work, Admin"
         };
 
@@ -20,30 +20,30 @@ public sealed class VaultItemEditorInputTests
 
         Assert.Equal("secret", item.Password);
         Assert.Equal("JBSWY3DPEHPK3PXP", item.TotpSecretBase32);
-        Assert.Empty(item.RecoveryCodes);
+        Assert.Equal(["alpha-1234", "beta-5678"], item.RecoveryCodes);
         Assert.Equal(["Work", "Admin"], item.Tags);
     }
 
     [Fact]
-    public void ToVaultItem_RecoveryCodes_ClearsPasswordFields()
+    public void ToVaultItem_RecoveryCodesCanExistWithoutPassword()
     {
-        var input = CreateInput(VaultItemType.RecoveryCodes) with
+        var input = CreateInput() with
         {
-            Password = "must-not-survive",
-            TotpSecretBase32 = "must-not-survive",
+            Password = string.Empty,
+            TotpSecretBase32 = string.Empty,
             RecoveryCodesText = "alpha-1234\nbeta-5678"
         };
 
         var item = input.ToVaultItem();
 
+        Assert.Equal(VaultItemType.Password, item.Type);
         Assert.Empty(item.Password);
         Assert.Empty(item.TotpSecretBase32);
         Assert.Equal(["alpha-1234", "beta-5678"], item.RecoveryCodes);
     }
 
-    private static VaultItemEditorInput CreateInput(VaultItemType type) => new(
+    private static VaultItemEditorInput CreateInput() => new(
         null,
-        type,
         "Example",
         "user",
         string.Empty,

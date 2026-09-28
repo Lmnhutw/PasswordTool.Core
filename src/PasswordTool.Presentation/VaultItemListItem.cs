@@ -12,10 +12,13 @@ public sealed record VaultItemListItem(
     IReadOnlyList<string> Tags,
     string Url,
     bool HasTotp,
+    bool HasPassword,
+    int RecoveryCodeCount,
     bool IsFavorite,
     DateTimeOffset UpdatedAt)
 {
-    public string TotpDisplay => HasTotp ? "Configured" : "—";
+    public string RecoveryCodesDisplay => RecoveryCodeCount == 0 ? "—" : $"{RecoveryCodeCount} codes";
+    public bool HasRecoveryCodes => RecoveryCodeCount > 0;
     public string UpdatedDisplay => UpdatedAt.ToLocalTime().ToString("g");
 
     public static VaultItemListItem FromVaultItem(VaultItem item) => new(
@@ -27,6 +30,8 @@ public sealed record VaultItemListItem(
         [.. item.Tags],
         item.HideUrl ? string.Empty : item.Url,
         item.HasTotp,
+        item.HasPassword || !string.IsNullOrWhiteSpace(item.Password),
+        item.RecoveryCodes is { Count: > 0 } ? item.RecoveryCodes.Count : item.RecoveryCodeCount,
         item.IsFavorite,
         item.UpdatedAt);
 }

@@ -99,7 +99,7 @@
                             <TextBlock Style="{StaticResource PasswordToolPageTitleStyle}" Text="Set up Authenticator" />
                             <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Scan this QR code with a compatible 6-digit TOTP app, then enter the current code to verify setup." TextWrapping="Wrap" />
                             <Image x:Name="AuthenticatorQrImage" Width="240" Height="240" AutomationProperties.Name="Authenticator QR code" />
-                            <TextBlock x:Name="AuthenticatorSecretText" FontFamily="Consolas" TextWrapping="Wrap" />
+                            <TextBlock x:Name="AuthenticatorSecretText" AutomationProperties.AutomationId="TxtAuthenticatorSetupSecret" FontFamily="Consolas" TextWrapping="Wrap" />
                             <Button HorizontalAlignment="Left" Click="CopyAuthenticatorSecretButton_Click" Content="Copy setup secret securely" />
                             <TextBox x:Name="AuthenticatorConfirmationInput" AutomationProperties.Name="Authenticator confirmation code" Header="6-digit code" MaxLength="6" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -161,13 +161,13 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Spacing="4">
@@ -183,6 +183,7 @@
                             AutomationProperties.Name="Add vault item"
                             Click="AddItemButton_Click"
                             Content="Add Item" />
+                        <Button Grid.Column="2" Margin="8,0,0,0" AutomationProperties.AutomationId="BtnOpenTrash" AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Content="Trash" />
                     </Grid>
 
                     <Grid Grid.Row="1" Margin="0,20,0,12" ColumnSpacing="8">
@@ -221,21 +222,7 @@
                             SelectedItem="{x:Bind ViewModel.Vault.SelectedSortOrder, Mode=TwoWay}" />
                     </Grid>
 
-                    <CommandBar Grid.Row="2" Margin="0,0,0,8" DefaultLabelPosition="Right">
-                        <AppBarButton x:Name="EditItemButton" AutomationProperties.Name="Edit selected item" Click="EditItemButton_Click" Icon="Edit" IsEnabled="False" Label="Edit" />
-                        <AppBarButton x:Name="ViewSecretButton" AutomationProperties.Name="View selected secret" Click="ViewSecretButton_Click" Icon="View" IsEnabled="False" Label="View" />
-                        <AppBarButton x:Name="CopyUsernameButton" AutomationProperties.Name="Copy selected username" Click="CopyUsernameButton_Click" Icon="Copy" IsEnabled="False" Label="Username" />
-                        <AppBarButton x:Name="CopyPasswordButton" AutomationProperties.Name="Copy selected password" Click="CopyPasswordButton_Click" Icon="Copy" IsEnabled="False" Label="Password" />
-                        <AppBarButton x:Name="CopyTotpButton" AutomationProperties.Name="Copy selected website TOTP" Click="CopyTotpButton_Click" Icon="Clock" IsEnabled="False" Label="TOTP" />
-                        <AppBarButton x:Name="PasswordHistoryButton" AutomationProperties.Name="View selected password history" Click="PasswordHistoryButton_Click" Icon="Clock" IsEnabled="False" Label="History" />
-                        <AppBarSeparator />
-                        <AppBarButton x:Name="DeleteItemButton" AutomationProperties.Name="Move selected item to Trash" Click="DeleteItemButton_Click" Icon="Delete" IsEnabled="False" Label="Trash" />
-                        <CommandBar.SecondaryCommands>
-                            <AppBarButton AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Icon="Delete" Label="Open Trash" />
-                        </CommandBar.SecondaryCommands>
-                    </CommandBar>
-
-                    <Grid x:Name="CompactVaultListRegion" Grid.Row="3">
+                    <Grid x:Name="CompactVaultListRegion" Grid.Row="2">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
@@ -245,17 +232,17 @@
                             ColumnSpacing="12"
                             Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="44" />
                                 <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="1.5*" />
-                                <ColumnDefinition Width="1.2*" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="1.4*" />
+                                <ColumnDefinition Width="1.6*" />
+                                <ColumnDefinition Width="1.6*" />
+                                <ColumnDefinition Width="1*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock FontWeight="SemiBold" Text="Title" />
-                            <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Username" />
-                            <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="Type" />
-                            <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Folder" />
-                            <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="Updated" />
+                            <TextBlock FontWeight="SemiBold" Text="Actions" />
+                            <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Title" />
+                            <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="Username" />
+                            <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Password" />
+                            <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="Recovery Codes" />
                         </Grid>
                         <ListView
                             Grid.Row="1"
@@ -264,7 +251,6 @@
                             ItemsSource="{x:Bind ViewModel.Vault.Items, Mode=OneWay}"
                             SelectedItem="{x:Bind ViewModel.Vault.SelectedItem, Mode=TwoWay}"
                             SelectionMode="Single"
-                            SelectionChanged="VaultItems_SelectionChanged"
                             DoubleTapped="VaultItems_DoubleTapped"
                             KeyDown="VaultItems_KeyDown"
                             ShowsScrollingPlaceholders="True">
@@ -275,44 +261,65 @@
                                         AutomationProperties.Name="{x:Bind Title}"
                                         ColumnSpacing="12">
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="44" />
                                             <ColumnDefinition Width="2*" />
-                                            <ColumnDefinition Width="1.5*" />
-                                            <ColumnDefinition Width="1.2*" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="1.4*" />
+                                            <ColumnDefinition Width="1.6*" />
+                                            <ColumnDefinition Width="1.6*" />
+                                            <ColumnDefinition Width="1*" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="1" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="2" Text="{x:Bind Type}" />
-                                        <TextBlock Grid.Column="3" Text="{x:Bind Folder}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="4" Text="{x:Bind UpdatedDisplay}" TextTrimming="CharacterEllipsis" />
+                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Actions', Id)}" AutomationProperties.Name="Actions" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="Item actions">
+                                            <SymbolIcon Symbol="More" />
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Edit', Id)}" Click="EditRowMenuItem_Click" Tag="{x:Bind Id}" Text="Edit" />
+                                                    <MenuFlyoutItem AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('History', Id)}" Click="PasswordHistoryRowMenuItem_Click" Tag="{x:Bind Id}" Text="Password History" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}" />
+                                                    <MenuFlyoutSeparator />
+                                                    <MenuFlyoutItem AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Trash', Id)}" Click="TrashRowMenuItem_Click" Tag="{x:Bind Id}" Text="Move to Trash" />
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock VerticalAlignment="Center" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
+                                            <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('CopyUsername', Id)}" AutomationProperties.Name="Copy username" Padding="4" Tag="{x:Bind Id}" Click="CopyUsernameRowButton_Click"><SymbolIcon Symbol="Copy" /></Button>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock VerticalAlignment="Center" Text="••••••••" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}" />
+                                            <TextBlock VerticalAlignment="Center" Text="—" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(HasPassword), Mode=OneTime}" />
+                                            <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewPassword', Id)}" AutomationProperties.Name="View password" Padding="4" Tag="{x:Bind Id}" Click="RevealPasswordRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
+                                            <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('CopyPassword', Id)}" AutomationProperties.Name="Copy password" Padding="4" Tag="{x:Bind Id}" Click="CopyPasswordRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}"><SymbolIcon Symbol="Copy" /></Button>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock VerticalAlignment="Center" Text="{x:Bind RecoveryCodesDisplay}" />
+                                            <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewRecoveryCodes', Id)}" AutomationProperties.Name="View recovery codes" Padding="4" Tag="{x:Bind Id}" Click="RevealRecoveryCodesRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasRecoveryCodes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
+                                        </StackPanel>
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
                     </Grid>
 
-                    <Grid x:Name="WideVaultListRegion" Grid.Row="3" Visibility="Collapsed">
+                    <Grid x:Name="WideVaultListRegion" Grid.Row="2" Visibility="Collapsed">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <Grid Padding="12,8" ColumnSpacing="12" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="44" />
                                 <ColumnDefinition Width="1.7*" />
                                 <ColumnDefinition Width="1.3*" />
-                                <ColumnDefinition Width="1*" />
-                                <ColumnDefinition Width="1*" />
+                                <ColumnDefinition Width="1.5*" />
                                 <ColumnDefinition Width="1*" />
                                 <ColumnDefinition Width="1.5*" />
                                 <ColumnDefinition Width="1.2*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock FontWeight="SemiBold" Text="Title" />
-                            <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Username" />
-                            <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="Type" />
-                            <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Folder" />
-                            <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="TOTP" />
-                            <TextBlock Grid.Column="5" FontWeight="SemiBold" Text="URL" />
+                            <TextBlock FontWeight="SemiBold" Text="Actions" />
+                            <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="Title" />
+                            <TextBlock Grid.Column="2" FontWeight="SemiBold" Text="Username" />
+                            <TextBlock Grid.Column="3" FontWeight="SemiBold" Text="Password" />
+                            <TextBlock Grid.Column="4" FontWeight="SemiBold" Text="Recovery Codes" />
+                            <TextBlock Grid.Column="5" FontWeight="SemiBold" Text="Folder" />
                             <TextBlock Grid.Column="6" FontWeight="SemiBold" Text="Updated" />
                         </Grid>
                         <ListView
@@ -321,29 +328,49 @@
                             ItemsSource="{x:Bind ViewModel.Vault.Items, Mode=OneWay}"
                             SelectedItem="{x:Bind ViewModel.Vault.SelectedItem, Mode=TwoWay}"
                             SelectionMode="Single"
-                            SelectionChanged="VaultItems_SelectionChanged"
                             DoubleTapped="VaultItems_DoubleTapped"
                             KeyDown="VaultItems_KeyDown"
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemListItem">
                                     <Grid Padding="12,10" AutomationProperties.Name="{x:Bind Title}" ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="1.7*" />
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="44" />
+                                        <ColumnDefinition Width="1.7*" />
                                             <ColumnDefinition Width="1.3*" />
-                                            <ColumnDefinition Width="1*" />
-                                            <ColumnDefinition Width="1*" />
-                                            <ColumnDefinition Width="1*" />
+                                        <ColumnDefinition Width="1.5*" />
+                                        <ColumnDefinition Width="1*" />
                                             <ColumnDefinition Width="1.5*" />
                                             <ColumnDefinition Width="1.2*" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="1" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="2" Text="{x:Bind Type}" />
-                                        <TextBlock Grid.Column="3" Text="{x:Bind Folder}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="4" Text="{x:Bind TotpDisplay}" />
-                                        <TextBlock Grid.Column="5" Text="{x:Bind Url}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="6" Text="{x:Bind UpdatedDisplay}" TextTrimming="CharacterEllipsis" />
+                                    <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Actions', Id)}" AutomationProperties.Name="Actions" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="Item actions">
+                                        <SymbolIcon Symbol="More" />
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Edit', Id)}" Click="EditRowMenuItem_Click" Tag="{x:Bind Id}" Text="Edit" />
+                                                <MenuFlyoutItem AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('History', Id)}" Click="PasswordHistoryRowMenuItem_Click" Tag="{x:Bind Id}" Text="Password History" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Trash', Id)}" Click="TrashRowMenuItem_Click" Tag="{x:Bind Id}" Text="Move to Trash" />
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" />
+                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('CopyUsername', Id)}" AutomationProperties.Name="Copy username" Padding="4" Tag="{x:Bind Id}" Click="CopyUsernameRowButton_Click"><SymbolIcon Symbol="Copy" /></Button>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center" Text="••••••••" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}" />
+                                        <TextBlock VerticalAlignment="Center" Text="—" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(HasPassword), Mode=OneTime}" />
+                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewPassword', Id)}" AutomationProperties.Name="View password" Padding="4" Tag="{x:Bind Id}" Click="RevealPasswordRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
+                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('CopyPassword', Id)}" AutomationProperties.Name="Copy password" Padding="4" Tag="{x:Bind Id}" Click="CopyPasswordRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}"><SymbolIcon Symbol="Copy" /></Button>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind RecoveryCodesDisplay}" />
+                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewRecoveryCodes', Id)}" AutomationProperties.Name="View recovery codes" Padding="4" Tag="{x:Bind Id}" Click="RevealRecoveryCodesRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasRecoveryCodes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="5" VerticalAlignment="Center" Text="{x:Bind Folder}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="6" VerticalAlignment="Center" Text="{x:Bind UpdatedDisplay}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -391,33 +418,28 @@
                 <ScrollViewer x:Name="EditorPage" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
                     <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="14">
                         <TextBlock x:Name="EditorTitle" Style="{StaticResource PasswordToolPageTitleStyle}" Text="Add item" />
-                        <ComboBox x:Name="EditorType" Header="Item type" SelectionChanged="EditorType_SelectionChanged" SelectedIndex="0">
-                            <ComboBoxItem Content="Password" Tag="Password" />
-                            <ComboBoxItem Content="Recovery codes" Tag="RecoveryCodes" />
-                        </ComboBox>
-                        <TextBox x:Name="EditorItemTitle" AutomationProperties.Name="Item title" Header="Title" />
-                        <TextBox x:Name="EditorUsername" AutomationProperties.Name="Username" Header="Username" />
+                        <TextBox x:Name="EditorItemTitle" AutomationProperties.AutomationId="TxtEditorTitle" AutomationProperties.Name="Item title" Header="Title" />
+                        <TextBox x:Name="EditorUsername" AutomationProperties.AutomationId="TxtEditorUsername" AutomationProperties.Name="Username" Header="Username" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <PasswordBox x:Name="EditorPassword" AutomationProperties.Name="Password" Header="Password" />
-                            <Button Grid.Column="1" VerticalAlignment="Bottom" AutomationProperties.Name="Generate a password or passphrase" Click="GeneratePasswordButton_Click" Content="Generate" />
+                            <PasswordBox x:Name="EditorPassword" AutomationProperties.AutomationId="TxtEditorPassword" AutomationProperties.Name="Password" Header="Password" />
+                            <Button Grid.Column="1" VerticalAlignment="Bottom" AutomationProperties.AutomationId="BtnGeneratePassword" AutomationProperties.Name="Generate a password or passphrase" Click="GeneratePasswordButton_Click" Content="Generate" />
                         </Grid>
-                        <TextBox x:Name="EditorRecoveryCodes" AcceptsReturn="True" AutomationProperties.Name="Recovery codes" ContextMenuOpening="SensitiveTextBox_ContextMenuOpening" Header="Recovery codes, one per line" Height="140" Tag="SensitiveInput" TextWrapping="Wrap" Visibility="Collapsed" />
-                        <TextBox x:Name="EditorTotpSecret" AutomationProperties.Name="Website TOTP secret" ContextMenuOpening="SensitiveTextBox_ContextMenuOpening" Header="Website TOTP secret or otpauth URI" Tag="SensitiveInput" />
-                        <TextBox x:Name="EditorUrl" AutomationProperties.Name="URL" Header="URL" />
-                        <TextBox x:Name="EditorFolder" AutomationProperties.Name="Folder" Header="Folder" />
-                        <TextBox x:Name="EditorTags" AutomationProperties.Name="Tags" Header="Tags, comma separated" />
-                        <TextBox x:Name="EditorNotes" AcceptsReturn="True" AutomationProperties.Name="Notes" ContextMenuOpening="SensitiveTextBox_ContextMenuOpening" Header="Notes" Height="120" Tag="SensitiveInput" TextWrapping="Wrap" />
+                        <TextBox x:Name="EditorRecoveryCodes" AutomationProperties.AutomationId="TxtEditorRecoveryCodes" AcceptsReturn="True" AutomationProperties.Name="Recovery codes" ContextMenuOpening="SensitiveTextBox_ContextMenuOpening" Header="Recovery codes, one per line" Height="140" Tag="SensitiveInput" TextWrapping="Wrap" />
+                        <TextBox x:Name="EditorUrl" AutomationProperties.AutomationId="TxtEditorUrl" AutomationProperties.Name="URL" Header="URL" />
+                        <TextBox x:Name="EditorFolder" AutomationProperties.AutomationId="TxtEditorFolder" AutomationProperties.Name="Folder" Header="Folder" />
+                        <TextBox x:Name="EditorTags" AutomationProperties.AutomationId="TxtEditorTags" AutomationProperties.Name="Tags" Header="Tags, comma separated" />
+                        <TextBox x:Name="EditorNotes" AutomationProperties.AutomationId="TxtEditorNotes" AcceptsReturn="True" AutomationProperties.Name="Notes" ContextMenuOpening="SensitiveTextBox_ContextMenuOpening" Header="Notes" Height="120" Tag="SensitiveInput" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="16">
-                            <CheckBox x:Name="EditorFavorite" Content="Favorite" />
-                            <CheckBox x:Name="EditorHideUrl" Content="Hide URL in list" />
-                            <CheckBox x:Name="EditorHideNotes" Content="Hide notes in list" />
+                            <CheckBox x:Name="EditorFavorite" AutomationProperties.AutomationId="ChkEditorFavorite" Content="Favorite" />
+                            <CheckBox x:Name="EditorHideUrl" AutomationProperties.AutomationId="ChkEditorHideUrl" Content="Hide URL in list" />
+                            <CheckBox x:Name="EditorHideNotes" AutomationProperties.AutomationId="ChkEditorHideNotes" Content="Hide notes in list" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Click="CancelEditorButton_Click" Content="Cancel" />
+                            <Button AutomationProperties.AutomationId="BtnCancelItem" Click="CancelEditorButton_Click" Content="Cancel" />
                             <Button AutomationProperties.AutomationId="BtnSaveItem" Click="SaveEditorButton_Click" Content="Save item" />
                         </StackPanel>
                     </StackPanel>

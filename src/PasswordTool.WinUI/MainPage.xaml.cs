@@ -19,6 +19,7 @@ public sealed partial class MainPage : Page
     private readonly PasswordGeneratorDialogService passwordGeneratorDialog = App.Services.GetRequiredService<PasswordGeneratorDialogService>();
     private int lifecycleLockInProgress;
     private Guid? editingItemId;
+    private string preservedTotpSecret = string.Empty;
     private AuthenticatorSetup? settingsAuthenticatorSetup;
     private bool showingTrash;
 
@@ -42,6 +43,10 @@ public sealed partial class MainPage : Page
             systemLockMonitor.Stop();
         };
     }
+
+    public static Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
+    public static Visibility InvertBoolToVisibility(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
+    public static string ItemAutomationId(string action, Guid id) => $"{action}_{id:N}";
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
@@ -331,8 +336,6 @@ public sealed partial class MainPage : Page
         EditorItemTitle.Focus(FocusState.Programmatic);
     }
 
-    private async void EditItemButton_Click(object sender, RoutedEventArgs e) => await OpenSelectedEditorAsync();
-
     private async void VaultItems_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => await OpenSelectedEditorAsync();
 
     private async void VaultItems_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -344,17 +347,22 @@ public sealed partial class MainPage : Page
 
     private async Task OpenSelectedEditorAsync()
     {
-        var item = await ViewModel.GetSelectedItemForEditingAsync();
+        if (ViewModel.Vault.SelectedItem is not { } selected) return;
+        await OpenEditorAsync(selected.Id);
+    }
+
+    private async Task OpenEditorAsync(Guid itemId)
+    {
+        var item = await ViewModel.GetItemForEditingAsync(itemId);
         if (item is null) return;
 
         editingItemId = item.Id;
         EditorTitle.Text = "Edit item";
-        EditorType.SelectedIndex = item.Type == VaultItemType.Password ? 0 : 1;
         EditorItemTitle.Text = item.Title;
         EditorUsername.Text = item.Username;
         EditorPassword.Password = item.Password;
         EditorRecoveryCodes.Text = string.Join(Environment.NewLine, item.RecoveryCodes);
-        EditorTotpSecret.Text = item.TotpSecretBase32;
+        preservedTotpSecret = item.TotpSecretBase32;
         EditorUrl.Text = item.Url;
         EditorFolder.Text = item.Folder;
         EditorTags.Text = string.Join(", ", item.Tags);
@@ -369,15 +377,13 @@ public sealed partial class MainPage : Page
 
     private async void SaveEditorButton_Click(object sender, RoutedEventArgs e)
     {
-        var type = EditorType.SelectedIndex == 1 ? VaultItemType.RecoveryCodes : VaultItemType.Password;
         var saved = await ViewModel.SaveItemAsync(new VaultItemEditorInput(
             editingItemId,
-            type,
             EditorItemTitle.Text,
             EditorUsername.Text,
             EditorPassword.Password,
             EditorRecoveryCodes.Text,
-            EditorTotpSecret.Text,
+            preservedTotpSecret,
             EditorUrl.Text,
             EditorNotes.Text,
             EditorFolder.Text,
@@ -403,25 +409,15 @@ public sealed partial class MainPage : Page
         if (generated is not null) EditorPassword.Password = generated;
     }
 
-    private void EditorType_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (EditorPassword is null || EditorRecoveryCodes is null || EditorTotpSecret is null) return;
-        var recoveryCodes = EditorType.SelectedIndex == 1;
-        EditorPassword.Visibility = recoveryCodes ? Visibility.Collapsed : Visibility.Visible;
-        EditorTotpSecret.Visibility = recoveryCodes ? Visibility.Collapsed : Visibility.Visible;
-        EditorRecoveryCodes.Visibility = recoveryCodes ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     private void ClearEditor()
     {
         editingItemId = null;
+        preservedTotpSecret = string.Empty;
         EditorTitle.Text = "Add item";
-        EditorType.SelectedIndex = 0;
         EditorItemTitle.Text = string.Empty;
         EditorUsername.Text = string.Empty;
         EditorPassword.Password = string.Empty;
         EditorRecoveryCodes.Text = string.Empty;
-        EditorTotpSecret.Text = string.Empty;
         EditorUrl.Text = string.Empty;
         EditorFolder.Text = string.Empty;
         EditorTags.Text = string.Empty;
@@ -452,25 +448,42 @@ public sealed partial class MainPage : Page
         SnapshotMasterPassword.Password = string.Empty;
     }
 
-    private void VaultItems_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void CopyUsernameRowButton_Click(object sender, RoutedEventArgs e)
     {
-        var selected = ViewModel.Vault.SelectedItem;
-        var hasSelection = selected is not null;
-        EditItemButton.IsEnabled = hasSelection;
-        ViewSecretButton.IsEnabled = hasSelection;
-        CopyUsernameButton.IsEnabled = hasSelection;
-        CopyPasswordButton.IsEnabled = selected?.Type == VaultItemType.Password;
-        CopyTotpButton.IsEnabled = selected?.HasTotp == true;
-        PasswordHistoryButton.IsEnabled = selected?.Type == VaultItemType.Password;
-        DeleteItemButton.IsEnabled = hasSelection;
+        if (GetItemId(sender) is { } id) await ViewModel.CopyUsernameAsync(id);
     }
 
-    private async void ViewSecretButton_Click(object sender, RoutedEventArgs e) => await ViewModel.RevealSelectedSecretAsync();
-    private async void CopyUsernameButton_Click(object sender, RoutedEventArgs e) => await ViewModel.CopySelectedUsernameAsync();
-    private async void CopyPasswordButton_Click(object sender, RoutedEventArgs e) => await ViewModel.CopySelectedPasswordAsync();
-    private async void CopyTotpButton_Click(object sender, RoutedEventArgs e) => await ViewModel.CopySelectedTotpAsync();
-    private async void DeleteItemButton_Click(object sender, RoutedEventArgs e) => await ViewModel.DeleteSelectedItemAsync();
-    private async void PasswordHistoryButton_Click(object sender, RoutedEventArgs e) => await ViewModel.ViewSelectedPasswordHistoryAsync();
+    private async void RevealPasswordRowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await ViewModel.RevealPasswordAsync(id);
+    }
+
+    private async void CopyPasswordRowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await ViewModel.CopyPasswordAsync(id);
+    }
+
+    private async void RevealRecoveryCodesRowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await ViewModel.RevealRecoveryCodesAsync(id);
+    }
+
+    private async void EditRowMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await OpenEditorAsync(id);
+    }
+
+    private async void PasswordHistoryRowMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await ViewModel.ViewPasswordHistoryAsync(id);
+    }
+
+    private async void TrashRowMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await ViewModel.DeleteItemAsync(id);
+    }
+
+    private static Guid? GetItemId(object sender) => (sender as FrameworkElement)?.Tag is Guid id ? id : null;
 
     private async void OpenTrashButton_Click(object sender, RoutedEventArgs e)
     {

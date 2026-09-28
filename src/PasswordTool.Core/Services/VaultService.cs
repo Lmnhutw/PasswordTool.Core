@@ -712,7 +712,7 @@ public sealed class VaultService : IDisposable
         EnsureOpen();
         RequireSensitiveTotp(totpCode);
         var activePasswordItems = vaultData!.Items
-            .Where(item => !item.IsDeleted && item.Type == VaultItemType.Password)
+            .Where(item => !item.IsDeleted && item.Type == VaultItemType.Password && !string.IsNullOrWhiteSpace(item.Password))
             .ToList();
         var reusedIds = activePasswordItems
             .Where(item => !string.IsNullOrEmpty(item.Password))
@@ -783,11 +783,6 @@ public sealed class VaultService : IDisposable
         RequireSensitiveTotp(totpCode);
 
         var item = FindItem(id);
-        if (item.Type != VaultItemType.RecoveryCodes)
-        {
-            throw new InvalidOperationException("This vault item does not store recovery codes.");
-        }
-
         return item.RecoveryCodes.ToList();
     }
 
@@ -921,7 +916,7 @@ public sealed class VaultService : IDisposable
         newItem.Id = Guid.NewGuid();
         newItem.CreatedAt = now;
         newItem.UpdatedAt = now;
-        newItem.PasswordChangedAt = newItem.Type == VaultItemType.Password ? now : null;
+        newItem.PasswordChangedAt = string.IsNullOrWhiteSpace(newItem.Password) ? null : now;
 
         vaultData!.Items.Add(newItem);
         SaveVault();
@@ -943,9 +938,9 @@ public sealed class VaultService : IDisposable
 
         var existing = FindItem(item.Id);
         var now = utcNow();
-        var wasPassword = existing.Type == VaultItemType.Password;
-        var changesPassword = wasPassword
-            && item.Type == VaultItemType.Password
+        var hadPassword = !string.IsNullOrWhiteSpace(existing.Password);
+        var hasPassword = !string.IsNullOrWhiteSpace(item.Password);
+        var changesPassword = hadPassword && hasPassword
             && !string.Equals(existing.Password, item.Password, StringComparison.Ordinal);
         if (changesPassword)
         {
@@ -959,9 +954,9 @@ public sealed class VaultService : IDisposable
         existing.Title = item.Title.Trim();
         existing.Type = item.Type;
         existing.Username = item.Username.Trim();
-        existing.Password = item.Type == VaultItemType.Password ? item.Password : string.Empty;
-        existing.TotpSecretBase32 = item.Type == VaultItemType.Password ? item.TotpSecretBase32 : string.Empty;
-        existing.RecoveryCodes = item.Type == VaultItemType.RecoveryCodes ? [.. item.RecoveryCodes] : [];
+        existing.Password = item.Password;
+        existing.TotpSecretBase32 = item.TotpSecretBase32;
+        existing.RecoveryCodes = [.. item.RecoveryCodes];
         existing.Url = item.Url.Trim();
         existing.HideUrl = item.HideUrl;
         existing.Notes = item.Notes;
@@ -970,12 +965,12 @@ public sealed class VaultService : IDisposable
         existing.Folder = item.Folder.Trim();
         existing.Tags = [.. item.Tags];
         existing.UpdatedAt = now;
-        if (item.Type == VaultItemType.RecoveryCodes)
+        if (!hasPassword)
         {
             existing.PasswordHistory = [];
             existing.PasswordChangedAt = null;
         }
-        else if (!wasPassword || changesPassword)
+        else if (!hadPassword || changesPassword)
         {
             existing.PasswordChangedAt = now;
         }
@@ -1268,14 +1263,14 @@ public sealed class VaultService : IDisposable
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         item.Folder = item.Folder?.Trim() ?? string.Empty;
-        if (item.Type == VaultItemType.Password && string.IsNullOrWhiteSpace(item.Password))
+        if (string.IsNullOrWhiteSpace(item.Password) && item.RecoveryCodes.Count == 0)
         {
-            throw new ArgumentException("Password is required.", nameof(item));
+            throw new ArgumentException("A password or at least two recovery codes are required.", nameof(item));
         }
 
-        if (item.Type == VaultItemType.Password && item.RecoveryCodes.Count != 0)
+        if (string.IsNullOrWhiteSpace(item.Password) && item.PasswordHistory.Count != 0)
         {
-            throw new ArgumentException("A password item cannot contain recovery codes.", nameof(item));
+            throw new ArgumentException("Password history requires a password.", nameof(item));
         }
 
         if (item.Type == VaultItemType.Password && !string.IsNullOrWhiteSpace(item.TotpSecretBase32))
@@ -1335,6 +1330,7 @@ public sealed class VaultService : IDisposable
     {
         var clone = Clone(item, includePassword: false);
         clone.RecoveryCodeCount = item.RecoveryCodes.Count;
+        clone.HasPassword = !string.IsNullOrWhiteSpace(item.Password);
         clone.HasTotp = !string.IsNullOrWhiteSpace(item.TotpSecretBase32);
         if (clone.HideUrl)
         {
@@ -1356,7 +1352,7 @@ public sealed class VaultService : IDisposable
             item.RecoveryCodes ??= [];
             item.Tags ??= [];
             item.PasswordHistory ??= [];
-            if (item.Type == VaultItemType.RecoveryCodes)
+            if (item.Type == VaultItemType.RecoveryCodes || string.IsNullOrWhiteSpace(item.Password))
             {
                 item.PasswordChangedAt = null;
             }

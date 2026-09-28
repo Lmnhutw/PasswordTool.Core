@@ -24,6 +24,9 @@ public sealed class VaultItemListItemTests
         Assert.Equal("Example", projected.Title);
         Assert.Equal(["Work"], projected.Tags);
         Assert.True(projected.HasTotp);
+        Assert.True(projected.HasPassword);
+        Assert.Equal(2, projected.RecoveryCodeCount);
+        Assert.Equal("2 codes", projected.RecoveryCodesDisplay);
         var representation = projected.ToString();
         Assert.DoesNotContain("secret", representation, StringComparison.Ordinal);
         Assert.DoesNotContain("code-one", representation, StringComparison.Ordinal);

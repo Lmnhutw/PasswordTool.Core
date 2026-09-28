@@ -111,7 +111,7 @@ public sealed class VaultBackupServiceTests
     }
 
     [Fact]
-    public void Backup_rejects_items_that_mix_password_and_recovery_code_fields()
+    public void Backup_rejects_legacy_recovery_items_that_also_contain_passwords()
     {
         var service = new VaultBackupService();
         var invalid = new VaultItem
@@ -123,6 +123,25 @@ public sealed class VaultBackupServiceTests
         };
 
         Assert.Throws<InvalidDataException>(() => service.CreateBackup([invalid], BackupPassphrase, DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void Backup_round_trips_password_and_recovery_codes_in_one_credential()
+    {
+        var service = new VaultBackupService();
+        var item = new VaultItem
+        {
+            Title = "GitHub",
+            Username = "person@example.com",
+            Password = "password-value",
+            RecoveryCodes = ["abcd-1234", "efgh-5678"]
+        };
+
+        var backup = service.CreateBackup([item], BackupPassphrase, DateTimeOffset.UtcNow);
+        var restored = Assert.Single(service.ReadBackup(backup, BackupPassphrase));
+
+        Assert.Equal("password-value", restored.Password);
+        Assert.Equal(["abcd-1234", "efgh-5678"], restored.RecoveryCodes);
     }
 
     private static List<VaultItem> CreateItems()

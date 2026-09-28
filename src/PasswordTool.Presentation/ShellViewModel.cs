@@ -242,11 +242,16 @@ public sealed partial class ShellViewModel : ObservableObject
     public async Task<VaultItem?> GetSelectedItemForEditingAsync()
     {
         if (Vault.SelectedItem is not { } selected) return null;
+        return await GetItemForEditingAsync(selected.Id);
+    }
+
+    public async Task<VaultItem?> GetItemForEditingAsync(Guid itemId)
+    {
         var code = await RequestSensitiveCodeAsync("Edit item", "Confirm before loading secret fields for editing.");
         if (code is null) return null;
         try
         {
-            return await flow.GetItemForEditingAsync(selected.Id, code);
+            return await flow.GetItemForEditingAsync(itemId, code);
         }
         catch (Exception exception)
         {
@@ -274,13 +279,13 @@ public sealed partial class ShellViewModel : ObservableObject
         }
     }
 
-    public async Task DeleteSelectedItemAsync()
+    public async Task DeleteItemAsync(Guid itemId)
     {
-        if (Vault.SelectedItem is not { } selected) return;
-        if (!await dialogs.ConfirmAsync("Move to Trash", $"Move '{selected.Title}' to Trash?", "Move to Trash")) return;
+        var title = Vault.Items.FirstOrDefault(item => item.Id == itemId)?.Title;
+        if (title is null || !await dialogs.ConfirmAsync("Move to Trash", $"Move '{title}' to Trash?", "Move to Trash")) return;
         try
         {
-            await flow.DeleteItemAsync(selected.Id);
+            await flow.DeleteItemAsync(itemId);
             await Vault.RefreshAsync();
             ClearAuthenticationStatus();
         }
@@ -290,12 +295,11 @@ public sealed partial class ShellViewModel : ObservableObject
         }
     }
 
-    public async Task CopySelectedUsernameAsync()
+    public async Task CopyUsernameAsync(Guid itemId)
     {
-        if (Vault.SelectedItem is not { } selected) return;
         try
         {
-            await clipboard.CopyAsync(await flow.GetUsernameAsync(selected.Id));
+            await clipboard.CopyAsync(await flow.GetUsernameAsync(itemId));
         }
         catch (Exception exception)
         {
@@ -303,17 +307,13 @@ public sealed partial class ShellViewModel : ObservableObject
         }
     }
 
-    public async Task RevealSelectedSecretAsync()
+    public async Task RevealPasswordAsync(Guid itemId)
     {
-        if (Vault.SelectedItem is not { } selected) return;
-        var code = await RequestSensitiveCodeAsync("View secret", "Confirm before revealing this vault item's secret.");
+        var code = await RequestSensitiveCodeAsync("View password", "Confirm before revealing this password.");
         if (code is null) return;
         try
         {
-            if (selected.Type == VaultItemType.Password)
-                await dialogs.ShowSecretAsync("Password", await flow.GetPasswordAsync(selected.Id, code), multiline: false);
-            else
-                await dialogs.ShowSecretAsync("Recovery codes", string.Join(Environment.NewLine, await flow.GetRecoveryCodesAsync(selected.Id, code)), multiline: true);
+            await dialogs.ShowSecretAsync("Password", await flow.GetPasswordAsync(itemId, code), multiline: false);
         }
         catch (Exception exception)
         {
@@ -321,14 +321,28 @@ public sealed partial class ShellViewModel : ObservableObject
         }
     }
 
-    public async Task CopySelectedPasswordAsync()
+    public async Task RevealRecoveryCodesAsync(Guid itemId)
     {
-        if (Vault.SelectedItem is not { Type: VaultItemType.Password } selected) return;
+        var code = await RequestSensitiveCodeAsync("View recovery codes", "Confirm before revealing recovery codes.");
+        if (code is null) return;
+        try
+        {
+            var codes = await flow.GetRecoveryCodesAsync(itemId, code);
+            await dialogs.ShowSecretAsync("Recovery codes", string.Join(Environment.NewLine, codes), multiline: true);
+        }
+        catch (Exception exception)
+        {
+            ShowMappedError(exception);
+        }
+    }
+
+    public async Task CopyPasswordAsync(Guid itemId)
+    {
         var code = await RequestSensitiveCodeAsync("Copy password", "Confirm before copying this password.");
         if (code is null) return;
         try
         {
-            await clipboard.CopyAsync(await flow.GetPasswordAsync(selected.Id, code));
+            await clipboard.CopyAsync(await flow.GetPasswordAsync(itemId, code));
         }
         catch (Exception exception)
         {
@@ -336,30 +350,14 @@ public sealed partial class ShellViewModel : ObservableObject
         }
     }
 
-    public async Task CopySelectedTotpAsync()
+    public async Task ViewPasswordHistoryAsync(Guid itemId)
     {
-        if (Vault.SelectedItem is not { HasTotp: true } selected) return;
-        var code = await RequestSensitiveCodeAsync("Copy TOTP", "Confirm before copying the current website code.");
-        if (code is null) return;
-        try
-        {
-            var result = await flow.GetWebsiteTotpCodeAsync(selected.Id, code);
-            await clipboard.CopyAsync(result.Code);
-        }
-        catch (Exception exception)
-        {
-            ShowMappedError(exception);
-        }
-    }
-
-    public async Task ViewSelectedPasswordHistoryAsync()
-    {
-        if (Vault.SelectedItem is not { Type: VaultItemType.Password } selected) return;
+        if (Vault.Items.All(item => item.Id != itemId || !item.HasPassword)) return;
         var code = await RequestSensitiveCodeAsync("Password history", "Confirm before revealing previous passwords.");
         if (code is null) return;
         try
         {
-            var history = await flow.GetPasswordHistoryAsync(selected.Id, code);
+            var history = await flow.GetPasswordHistoryAsync(itemId, code);
             var text = history.Count == 0
                 ? "No previous passwords are stored for this item."
                 : string.Join(Environment.NewLine + Environment.NewLine, history.Select(entry =>

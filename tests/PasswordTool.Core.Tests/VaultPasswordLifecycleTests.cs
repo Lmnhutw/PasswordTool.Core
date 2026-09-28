@@ -10,6 +10,33 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
     private readonly string tempDirectory = Path.Combine(Path.GetTempPath(), "PasswordTool.Lifecycle.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void Recovery_only_credentials_do_not_receive_password_metadata_or_security_findings()
+    {
+        const string masterPassword = "correct horse battery staple";
+        var now = new DateTimeOffset(2026, 9, 18, 8, 0, 0, TimeSpan.Zero);
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        var code = ComputeTotp(secret);
+        Guid itemId;
+        using (var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp, utcNow: () => now))
+        {
+            vault.InitializeNewVault(masterPassword, secret, code);
+            var item = vault.AddItem(new VaultItem
+            {
+                Title = "Recovery only",
+                RecoveryCodes = ["alpha-1234", "beta-5678"]
+            });
+            itemId = item.Id;
+            Assert.Null(item.PasswordChangedAt);
+            Assert.DoesNotContain(vault.GetSecurityFindings(code), finding => finding.ItemId == itemId);
+        }
+
+        using var reopened = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp, utcNow: () => now);
+        Assert.True(reopened.UnlockWithMasterPassword(masterPassword).Success);
+        Assert.Null(Assert.Single(reopened.GetItems()).PasswordChangedAt);
+    }
+
+    [Fact]
     public void Password_lifecycle_tracks_only_password_changes_and_type_conversions()
     {
         var now = new DateTimeOffset(2026, 9, 18, 8, 0, 0, TimeSpan.Zero);
@@ -20,10 +47,16 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         using var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
         vault.InitializeNewVault("correct horse battery staple", secret, code);
 
-        var added = vault.AddItem(new VaultItem { Title = "Email", Password = "first unique password" });
+        var added = vault.AddItem(new VaultItem
+        {
+            Title = "Email",
+            Password = "first unique password",
+            RecoveryCodes = ["alpha-1234", "beta-5678"]
+        });
         Assert.Equal(now, added.CreatedAt);
         Assert.Equal(now, added.UpdatedAt);
         Assert.Equal(now, added.PasswordChangedAt);
+        Assert.Equal(["alpha-1234", "beta-5678"], vault.GetRecoveryCodes(added.Id, code));
 
         now = now.AddMinutes(1);
         var edited = vault.GetItemForEditing(added.Id, code);
@@ -42,6 +75,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         var history = Assert.Single(vault.GetPasswordHistory(added.Id, string.Empty));
         Assert.Equal(now, history.ChangedAt);
         Assert.Equal("first unique password", history.Password);
+        Assert.Equal(["alpha-1234", "beta-5678"], vault.GetRecoveryCodes(added.Id, code));
 
         now = now.AddMinutes(1);
         edited = vault.GetItemForEditing(added.Id, string.Empty);

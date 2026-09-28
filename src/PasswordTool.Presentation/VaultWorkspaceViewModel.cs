@@ -111,8 +111,8 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
         filtered = SelectedViewFilter.Value switch
         {
             VaultViewFilter.Favorites => filtered.Where(item => item.IsFavorite),
-            VaultViewFilter.Passwords => filtered.Where(item => item.Type == VaultItemType.Password),
-            VaultViewFilter.RecoveryCodes => filtered.Where(item => item.Type == VaultItemType.RecoveryCodes),
+            VaultViewFilter.Passwords => filtered.Where(item => item.HasPassword),
+            VaultViewFilter.RecoveryCodes => filtered.Where(item => item.RecoveryCodeCount > 0),
             _ => filtered
         };
 

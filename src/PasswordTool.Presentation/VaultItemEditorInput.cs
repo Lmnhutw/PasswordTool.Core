@@ -5,7 +5,6 @@ namespace PasswordTool.Presentation;
 
 public sealed record VaultItemEditorInput(
     Guid? Id,
-    VaultItemType Type,
     string Title,
     string Username,
     string Password,
@@ -22,7 +21,7 @@ public sealed record VaultItemEditorInput(
     public VaultItem ToVaultItem()
     {
         var recoveryCodes = new List<string>();
-        if (Type == VaultItemType.RecoveryCodes)
+        if (!string.IsNullOrWhiteSpace(RecoveryCodesText))
         {
             var parsed = RecoveryCodeParser.Parse(RecoveryCodesText);
             if (!parsed.IsValid) throw new ArgumentException(parsed.ErrorMessage, nameof(RecoveryCodesText));
@@ -36,12 +35,12 @@ public sealed record VaultItemEditorInput(
         return new VaultItem
         {
             Id = Id ?? Guid.NewGuid(),
-            Type = Type,
+            Type = VaultItemType.Password,
             Title = Title,
             Username = Username,
-            Password = Type == VaultItemType.Password ? Password : string.Empty,
+            Password = Password,
             RecoveryCodes = recoveryCodes,
-            TotpSecretBase32 = Type == VaultItemType.Password ? TotpSecretBase32 : string.Empty,
+            TotpSecretBase32 = TotpSecretBase32,
             Url = Url,
             Notes = Notes,
             Folder = Folder,
