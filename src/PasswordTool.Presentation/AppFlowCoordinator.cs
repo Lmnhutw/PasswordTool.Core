@@ -26,9 +26,24 @@ public sealed class AppFlowCoordinator
     public static AppFlowState ResolveInitialState(bool isInitialized, bool hasPartialStorage) =>
         hasPartialStorage ? AppFlowState.Recover : isInitialized ? AppFlowState.Unlock : AppFlowState.FirstLaunch;
 
-    public async Task<VaultUnlockResult> UnlockAsync(string masterPassword, CancellationToken cancellationToken = default)
+    public async Task<VaultUnlockResult> UnlockAsync(string masterPassword, string totpCode, CancellationToken cancellationToken = default)
     {
-        var result = await operations.RunAsync(() => vaultService.UnlockWithMasterPassword(masterPassword), cancellationToken).ConfigureAwait(false);
+        var result = await operations.RunAsync(() =>
+        {
+            var unlocked = vaultService.UnlockWithMasterPassword(masterPassword);
+            if (!unlocked.Success) return unlocked;
+
+            var verified = false;
+            try
+            {
+                verified = vaultService.VerifyTotpForSession(totpCode);
+                return verified ? unlocked : new VaultUnlockResult(VaultUnlockStatus.Failed, "Invalid Google Authenticator code.");
+            }
+            finally
+            {
+                if (!verified) vaultService.ClearSession();
+            }
+        }, cancellationToken).ConfigureAwait(false);
         if (result.Success) FlowState = AppFlowState.Unlocked;
         return result;
     }
@@ -143,6 +158,11 @@ public sealed class AppFlowCoordinator
             () => TimeSpan.FromMinutes(vaultService.SecuritySettings.InactivityLockTimeoutMinutes),
             cancellationToken);
 
+    public Task<TimeSpan> GetVaultOpenDurationAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(
+            () => TimeSpan.FromMinutes(vaultService.SecuritySettings.VaultOpenDurationMinutes),
+            cancellationToken);
+
     public Task<bool> IsSensitiveSessionActiveAsync(CancellationToken cancellationToken = default) =>
         operations.RunAsync(() => vaultService.IsSensitiveSessionActive, cancellationToken);
 
@@ -210,6 +230,7 @@ public sealed class AppFlowCoordinator
                 vaultService.LoginMode,
                 security.InactivityLockTimeoutMinutes,
                 security.SensitiveActionTimeoutMinutes,
+                security.VaultOpenDurationMinutes,
                 vaultService.NeedsKdfUpgrade,
                 vaultService.LastExternalBackupAt,
                 vaultService.LastVerifiedBackupAt);
@@ -220,13 +241,14 @@ public sealed class AppFlowCoordinator
         VaultLoginMode loginMode,
         int inactivityTimeoutMinutes,
         int sensitiveActionTimeoutMinutes,
+        int vaultOpenDurationMinutes,
         CancellationToken cancellationToken = default) =>
         operations.RunAsync(() =>
         {
             var success = vaultService.TryUpdateSettings(
                 masterPassword,
                 loginMode,
-                new VaultSecuritySettings(inactivityTimeoutMinutes, sensitiveActionTimeoutMinutes),
+                new VaultSecuritySettings(inactivityTimeoutMinutes, sensitiveActionTimeoutMinutes, vaultOpenDurationMinutes),
                 out var message);
             return new OperationResult(success, message);
         }, cancellationToken);

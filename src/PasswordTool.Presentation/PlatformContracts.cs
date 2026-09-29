@@ -32,6 +32,6 @@ public interface ISensitiveClipboardService
 public interface ISystemLockMonitor
 {
     event EventHandler? LockRequired;
-    void Start(TimeSpan inactivityTimeout);
+    void Start(TimeSpan inactivityTimeout, TimeSpan vaultOpenDuration);
     void Stop();
 }

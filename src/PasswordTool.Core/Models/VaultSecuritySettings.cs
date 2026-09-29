@@ -2,15 +2,17 @@ namespace PasswordTool.Core.Models;
 
 public sealed record VaultSecuritySettings(
     int InactivityLockTimeoutMinutes,
-    int SensitiveActionTimeoutMinutes)
+    int SensitiveActionTimeoutMinutes,
+    int VaultOpenDurationMinutes = 10)
 {
     public const int DefaultInactivityLockTimeoutMinutes = 10;
     public const int DefaultSensitiveActionTimeoutMinutes = 5;
+    public const int DefaultVaultOpenDurationMinutes = 10;
     public const int MinimumTimeoutMinutes = 1;
     public const int MaximumInactivityLockTimeoutMinutes = 120;
     public const int MaximumSensitiveActionTimeoutMinutes = 30;
 
-    public static void Validate(int inactivityLockTimeoutMinutes, int sensitiveActionTimeoutMinutes)
+    public static void Validate(int inactivityLockTimeoutMinutes, int sensitiveActionTimeoutMinutes, int vaultOpenDurationMinutes = DefaultVaultOpenDurationMinutes)
     {
         if (inactivityLockTimeoutMinutes is < MinimumTimeoutMinutes or > MaximumInactivityLockTimeoutMinutes)
         {
@@ -25,5 +27,8 @@ public sealed record VaultSecuritySettings(
                 nameof(sensitiveActionTimeoutMinutes),
                 $"The sensitive-action timeout must be between {MinimumTimeoutMinutes} and {MaximumSensitiveActionTimeoutMinutes} minutes.");
         }
+
+        if (vaultOpenDurationMinutes is not (1 or 5 or 10 or 30 or 60 or 120))
+            throw new ArgumentOutOfRangeException(nameof(vaultOpenDurationMinutes), "The vault open duration must be 1, 5, 10, 30, 60, or 120 minutes.");
     }
 }

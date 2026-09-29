@@ -17,6 +17,7 @@ public sealed partial class MainPage : Page
     public ShellViewModel ViewModel { get; } = App.Services.GetRequiredService<ShellViewModel>();
     private readonly ISystemLockMonitor systemLockMonitor = App.Services.GetRequiredService<ISystemLockMonitor>();
     private readonly ISensitiveClipboardService sensitiveClipboard = App.Services.GetRequiredService<ISensitiveClipboardService>();
+    private readonly IUserDialogService dialogs = App.Services.GetRequiredService<IUserDialogService>();
     private readonly PasswordGeneratorDialogService passwordGeneratorDialog = App.Services.GetRequiredService<PasswordGeneratorDialogService>();
     private int lifecycleLockInProgress;
     private Guid? editingItemId;
@@ -69,21 +70,25 @@ public sealed partial class MainPage : Page
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!UnlockButton.IsEnabled) return;
         UnlockButton.IsEnabled = false;
         try
         {
+            var code = await dialogs.PromptSensitiveTotpAsync(
+                "Unlock vault", "Enter the current 6-digit code from Google Authenticator.");
+            if (code is null) return;
+
             if (AuthenticatorOption.IsChecked == true)
-                await ViewModel.UnlockWithAuthenticatorAsync(AuthenticatorLoginInput.Text);
+                await ViewModel.UnlockWithAuthenticatorAsync(code);
             else
-                await ViewModel.UnlockAsync(MasterPasswordInput.Password);
+                await ViewModel.UnlockAsync(MasterPasswordInput.Password, code);
 
             if (ViewModel.IsUnlocked)
             {
                 MasterPasswordInput.Password = string.Empty;
-                AuthenticatorLoginInput.Text = string.Empty;
             }
             ApplyShellState();
-            if (ViewModel.IsUnlocked) systemLockMonitor.Start(ViewModel.InactivityTimeout);
+            if (ViewModel.IsUnlocked) systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
         }
         finally
         {
@@ -104,21 +109,6 @@ public sealed partial class MainPage : Page
     {
         var selectedItem = args.SelectedItemContainer ?? args.SelectedItem as NavigationViewItem;
         if (selectedItem?.Tag is not string tag) return;
-        if (tag == "Lock")
-        {
-            App.Services.GetRequiredService<DialogLifetime>().DismissAll();
-            systemLockMonitor.Stop();
-            await ViewModel.LockCommand.ExecuteAsync(null);
-            showingTrash = false;
-            ClearEditor();
-            ClearSettingsInputs();
-            ClearBackupInputs();
-            sender.SelectedItem = null;
-            ApplyShellState();
-            MasterPasswordInput.Focus(FocusState.Programmatic);
-            return;
-        }
-
         if (Enum.TryParse<AppRoute>(tag, out var route))
         {
             showingTrash = false;
@@ -127,6 +117,19 @@ public sealed partial class MainPage : Page
             if (route == AppRoute.Backup) await ViewModel.Backup.LoadAsync();
             ApplyRoute(route);
         }
+    }
+
+    private async void LockVaultButton_Click(object sender, RoutedEventArgs e)
+    {
+        App.Services.GetRequiredService<DialogLifetime>().DismissAll();
+        systemLockMonitor.Stop();
+        await ViewModel.LockCommand.ExecuteAsync(null);
+        showingTrash = false;
+        ClearEditor();
+        ClearSettingsInputs();
+        ClearBackupInputs();
+        ApplyShellState();
+        MasterPasswordInput.Focus(FocusState.Programmatic);
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -138,11 +141,10 @@ public sealed partial class MainPage : Page
 
     private void UpdateLoginOptionState()
     {
-        if (MasterPasswordInput is null || AuthenticatorLoginInput is null) return;
+        if (MasterPasswordInput is null || AuthenticatorOption is null) return;
         var useAuthenticator = AuthenticatorOption.IsChecked == true && AuthenticatorOption.IsEnabled;
         ViewModel.UseAuthenticator = useAuthenticator;
         MasterPasswordInput.Visibility = useAuthenticator ? Visibility.Collapsed : Visibility.Visible;
-        AuthenticatorLoginInput.Visibility = useAuthenticator ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CreateVaultButton_Click(object sender, RoutedEventArgs e)
@@ -196,7 +198,7 @@ public sealed partial class MainPage : Page
         if (!ViewModel.IsUnlocked) return;
 
         ClearFirstLaunchInputs();
-        systemLockMonitor.Start(ViewModel.InactivityTimeout);
+        systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
     }
 
     private async void CopyAuthenticatorSecretButton_Click(object sender, RoutedEventArgs e)
@@ -296,7 +298,7 @@ public sealed partial class MainPage : Page
         {
             case AppFlowState.Unlock:
                 if (ViewModel.UseAuthenticator)
-                    AuthenticatorLoginInput.Focus(FocusState.Programmatic);
+                    UnlockButton.Focus(FocusState.Programmatic);
                 else
                     MasterPasswordInput.Focus(FocusState.Programmatic);
                 break;
@@ -620,7 +622,8 @@ public sealed partial class MainPage : Page
         if (!await ViewModel.Settings.SaveAsync(SettingsMasterPassword.Password)) return;
         SettingsMasterPassword.Password = string.Empty;
         ViewModel.InactivityTimeout = TimeSpan.FromMinutes(ViewModel.Settings.InactivityTimeoutMinutes);
-        systemLockMonitor.Start(ViewModel.InactivityTimeout);
+        ViewModel.VaultOpenDuration = TimeSpan.FromMinutes(ViewModel.Settings.SelectedVaultOpenDuration.Minutes);
+        systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
         await ViewModel.LoadAuthenticationOptionsAsync();
     }
 

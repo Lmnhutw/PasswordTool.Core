@@ -327,10 +327,10 @@ public sealed class VaultServiceTests : IDisposable
         Assert.True(vault.TryUpdateSettings(
             "correct horse battery staple",
             VaultLoginMode.Hybrid,
-            new VaultSecuritySettings(20, 2),
+            new VaultSecuritySettings(20, 2, 60),
             out var updateError), updateError);
         Assert.False(vault.IsSensitiveSessionActive);
-        Assert.Equal(new VaultSecuritySettings(20, 2), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(20, 2, 60), vault.SecuritySettings);
 
         Assert.True(vault.VerifyTotpForSensitiveAction(code));
         now = now.AddMinutes(2).AddSeconds(1);
@@ -339,16 +339,17 @@ public sealed class VaultServiceTests : IDisposable
         var persisted = storage.LoadConfig();
         Assert.Equal(20, persisted.InactivityLockTimeoutMinutes);
         Assert.Equal(2, persisted.SensitiveActionTimeoutMinutes);
+        Assert.Equal(60, persisted.VaultOpenDurationMinutes);
         using (var reopened = new VaultService(storage, new EncryptionService(), totpService))
         {
-            Assert.Equal(new VaultSecuritySettings(20, 2), reopened.SecuritySettings);
+            Assert.Equal(new VaultSecuritySettings(20, 2, 60), reopened.SecuritySettings);
         }
 
         Assert.True(vault.TryChangeMasterPassword(
             "correct horse battery staple",
             "a different secure master password",
             out var changePasswordError), changePasswordError);
-        Assert.Equal(new VaultSecuritySettings(20, 2), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(20, 2, 60), vault.SecuritySettings);
     }
 
     [Fact]
@@ -373,6 +374,12 @@ public sealed class VaultServiceTests : IDisposable
             new VaultSecuritySettings(10, 31),
             out var sensitiveError));
         Assert.Contains("sensitive-action", sensitiveError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vault.TryUpdateSettings(
+            "correct horse battery staple",
+            VaultLoginMode.Hybrid,
+            new VaultSecuritySettings(10, 5, 15),
+            out var durationError));
+        Assert.Contains("vault open duration", durationError, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
     }
 

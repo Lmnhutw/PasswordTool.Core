@@ -55,6 +55,7 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] public partial string StatusMessage { get; set; } = string.Empty;
     [ObservableProperty] public partial bool IsStatusOpen { get; set; }
     [ObservableProperty] public partial TimeSpan InactivityTimeout { get; set; } = TimeSpan.FromMinutes(10);
+    [ObservableProperty] public partial TimeSpan VaultOpenDuration { get; set; } = TimeSpan.FromMinutes(10);
     [ObservableProperty] public partial bool CanUseAuthenticator { get; set; }
     [ObservableProperty] public partial bool UseAuthenticator { get; set; }
     [ObservableProperty] public partial bool IsRecovering { get; set; }
@@ -67,10 +68,10 @@ public sealed partial class ShellViewModel : ObservableObject
     public bool IsVaultRoute => CurrentRoute == AppRoute.Vault;
     public bool IsHashToolRoute => CurrentRoute == AppRoute.HashTool;
 
-    public async Task UnlockAsync(string masterPassword)
+    public async Task UnlockAsync(string masterPassword, string totpCode)
     {
         IsStatusOpen = false;
-        var result = await flow.UnlockAsync(masterPassword);
+        var result = await flow.UnlockAsync(masterPassword, totpCode);
         FlowState = flow.FlowState;
         if (!result.Success)
         {
@@ -424,6 +425,7 @@ public sealed partial class ShellViewModel : ObservableObject
         StatusMessage = result.Message;
         IsStatusOpen = !string.IsNullOrWhiteSpace(result.Message);
         InactivityTimeout = await flow.GetInactivityTimeoutAsync();
+        VaultOpenDuration = await flow.GetVaultOpenDurationAsync();
         await Vault.RefreshAsync();
     }
 

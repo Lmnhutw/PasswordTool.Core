@@ -121,10 +121,12 @@ public sealed class VaultService : IDisposable
             var config = storageService.LoadConfig();
             VaultSecuritySettings.Validate(
                 config.InactivityLockTimeoutMinutes,
-                config.SensitiveActionTimeoutMinutes);
+                config.SensitiveActionTimeoutMinutes,
+                config.VaultOpenDurationMinutes);
             return new VaultSecuritySettings(
                 config.InactivityLockTimeoutMinutes,
-                config.SensitiveActionTimeoutMinutes);
+                config.SensitiveActionTimeoutMinutes,
+                config.VaultOpenDurationMinutes);
         }
     }
 
@@ -469,7 +471,8 @@ public sealed class VaultService : IDisposable
         {
             VaultSecuritySettings.Validate(
                 securitySettings.InactivityLockTimeoutMinutes,
-                securitySettings.SensitiveActionTimeoutMinutes);
+                securitySettings.SensitiveActionTimeoutMinutes,
+                securitySettings.VaultOpenDurationMinutes);
         }
         catch (ArgumentOutOfRangeException ex)
         {
@@ -490,6 +493,7 @@ public sealed class VaultService : IDisposable
             config.LoginMode = loginMode;
             config.InactivityLockTimeoutMinutes = securitySettings.InactivityLockTimeoutMinutes;
             config.SensitiveActionTimeoutMinutes = securitySettings.SensitiveActionTimeoutMinutes;
+            config.VaultOpenDurationMinutes = securitySettings.VaultOpenDurationMinutes;
             config.UpdatedAt = utcNow();
             storageService.SaveConfig(config);
             ClearSensitiveSession();
@@ -1220,6 +1224,7 @@ public sealed class VaultService : IDisposable
             candidate.LoginMode = legacyConfig.LoginMode;
             candidate.InactivityLockTimeoutMinutes = legacyConfig.InactivityLockTimeoutMinutes;
             candidate.SensitiveActionTimeoutMinutes = legacyConfig.SensitiveActionTimeoutMinutes;
+            candidate.VaultOpenDurationMinutes = legacyConfig.VaultOpenDurationMinutes;
             candidate.LastExternalBackupAt = legacyConfig.LastExternalBackupAt;
             candidate.LastVerifiedBackupAt = legacyConfig.LastVerifiedBackupAt;
             var payload = encryptionService.EncryptObject(data, vaultKey, MasterPasswordService.VaultContext);

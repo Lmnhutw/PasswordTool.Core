@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using PasswordTool.Presentation;
@@ -8,6 +9,8 @@ internal sealed class SystemLockMonitor : ISystemLockMonitor, IDisposable
 {
     private readonly Timer timer;
     private TimeSpan inactivityTimeout;
+    private TimeSpan vaultOpenDuration;
+    private long openedAtTimestamp;
     private int lockRaised;
     private bool monitoring;
     private bool disposed;
@@ -16,14 +19,17 @@ internal sealed class SystemLockMonitor : ISystemLockMonitor, IDisposable
 
     public event EventHandler? LockRequired;
 
-    public void Start(TimeSpan inactivityTimeout)
+    public void Start(TimeSpan inactivityTimeout, TimeSpan vaultOpenDuration)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         if (inactivityTimeout <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(inactivityTimeout));
+        if (vaultOpenDuration <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(vaultOpenDuration));
         this.inactivityTimeout = inactivityTimeout;
+        this.vaultOpenDuration = vaultOpenDuration;
         Interlocked.Exchange(ref lockRaised, 0);
         if (!monitoring)
         {
+            openedAtTimestamp = Stopwatch.GetTimestamp();
             SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
             SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
             monitoring = true;
@@ -44,7 +50,8 @@ internal sealed class SystemLockMonitor : ISystemLockMonitor, IDisposable
 
     private void CheckIdle(object? state)
     {
-        if (GetSystemIdleTime() >= inactivityTimeout) RequestLock();
+        if (Stopwatch.GetElapsedTime(openedAtTimestamp) >= vaultOpenDuration || GetSystemIdleTime() >= inactivityTimeout)
+            RequestLock();
     }
 
     private void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
