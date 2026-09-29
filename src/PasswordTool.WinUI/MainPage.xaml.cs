@@ -48,6 +48,7 @@ public sealed partial class MainPage : Page
 
     public static Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility InvertBoolToVisibility(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
+    public static HorizontalAlignment NotesRevealAlignment(bool hideNotes) => hideNotes ? HorizontalAlignment.Center : HorizontalAlignment.Right;
     public static string ItemAutomationId(string action, Guid id) => $"{action}_{id:N}";
     public static string GroupAutomationId(Guid? id) => id is null ? "Group_Ungrouped" : $"Group_{id:N}";
     public static string GroupChevron(bool expanded) => expanded ? "\uE70D" : "\uE76C";

@@ -19,7 +19,7 @@ public sealed record VaultItemListItem(
     bool IsFavorite,
     DateTimeOffset UpdatedAt)
 {
-    public string RecoveryCodesDisplay => RecoveryCodeCount == 0 ? "—" : $"{RecoveryCodeCount} codes";
+    public string RecoveryCodesDisplay => RecoveryCodeCount == 0 ? string.Empty : $"{RecoveryCodeCount} codes";
     public bool HasRecoveryCodes => RecoveryCodeCount > 0;
     public bool HasNotes => HideNotes || !string.IsNullOrWhiteSpace(Notes);
     public string UpdatedDisplay => UpdatedAt.ToLocalTime().ToString("g");

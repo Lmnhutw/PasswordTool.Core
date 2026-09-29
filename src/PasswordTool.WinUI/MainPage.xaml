@@ -14,12 +14,10 @@
 
     <Page.Resources>
         <Style x:Key="VaultRowIconButtonStyle" BasedOn="{StaticResource DefaultButtonStyle}" TargetType="Button">
-            <Setter Property="Width" Value="28" />
-            <Setter Property="Height" Value="28" />
-            <Setter Property="MinWidth" Value="28" />
-            <Setter Property="MinHeight" Value="28" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="MinWidth" Value="30" />
+            <Setter Property="MinHeight" Value="30" />
         </Style>
         <Style x:Key="VaultRowSymbolStyle" TargetType="SymbolIcon">
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
@@ -34,6 +32,10 @@
             <Setter Property="Margin" Value="0" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style x:Key="VaultDataRowContainerStyle" BasedOn="{StaticResource VaultTableItemContainerStyle}" TargetType="ListViewItem">
+            <Setter Property="BorderBrush" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
         </Style>
     </Page.Resources>
 
@@ -176,7 +178,6 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
@@ -207,11 +208,13 @@
                         </Button>
                     </Grid>
 
-                    <Grid Grid.Row="1" Margin="0,16,0,12" ColumnSpacing="12" HorizontalAlignment="Left">
+                    <Grid Grid.Row="1" Margin="0,16,0,12" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="380" />
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="*" MinWidth="200" MaxWidth="380" />
+                            <ColumnDefinition Width="130" />
+                            <ColumnDefinition Width="130" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBox
                             x:Name="VaultSearchInput"
@@ -234,15 +237,14 @@
                             DisplayMemberPath="Label"
                             ItemsSource="{x:Bind ViewModel.Vault.SortOrders}"
                             SelectedItem="{x:Bind ViewModel.Vault.SelectedSortOrder, Mode=TwoWay}" />
+                        <StackPanel Grid.Column="4" VerticalAlignment="Bottom" Orientation="Horizontal" Spacing="8">
+                            <Button AutomationProperties.AutomationId="BtnAddGroup" AutomationProperties.Name="Create group" Click="AddGroupButton_Click" Content="New Group" />
+                            <Button AutomationProperties.AutomationId="BtnAddItem" AutomationProperties.Name="Add vault item" Click="AddItemButton_Click" Content="Add Item" />
+                            <Button AutomationProperties.AutomationId="BtnOpenTrash" AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Content="Trash" />
+                        </StackPanel>
                     </Grid>
 
-                    <StackPanel Grid.Row="2" Margin="0,0,0,12" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-                        <Button AutomationProperties.AutomationId="BtnAddGroup" AutomationProperties.Name="Create group" Click="AddGroupButton_Click" Content="New Group" />
-                        <Button AutomationProperties.AutomationId="BtnAddItem" AutomationProperties.Name="Add vault item" Click="AddItemButton_Click" Content="Add Item" />
-                        <Button AutomationProperties.AutomationId="BtnOpenTrash" AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Content="Trash" />
-                    </StackPanel>
-
-                    <Grid x:Name="CompactVaultListRegion" Grid.Row="3">
+                    <Grid x:Name="CompactVaultListRegion" Grid.Row="2">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
@@ -276,34 +278,19 @@
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
-                                    <Border Margin="0,8,0,4" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8">
-                                      <StackPanel>
-                                        <Button Margin="14,6,0,4" HorizontalAlignment="Left" Padding="12,6" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
-                                                <TextBlock MaxWidth="280" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Opacity="0.72" Text="{x:Bind CountText}" />
-                                            </StackPanel>
-                                            <Button.ContextFlyout>
-                                                <MenuFlyout>
-                                                    <MenuFlyoutItem Click="RenameGroupMenuItem_Click" Tag="{x:Bind}" Text="Rename" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
-                                                    <MenuFlyoutItem Click="ChangeGroupColorMenuItem_Click" Tag="{x:Bind}" Text="Change color" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
-                                                    <MenuFlyoutItem Click="DeleteGroupMenuItem_Click" Tag="{x:Bind}" Text="Delete group" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
-                                                </MenuFlyout>
-                                            </Button.ContextFlyout>
-                                        </Button>
-                                        <Grid Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}">
-                                            <ListView ItemContainerStyle="{StaticResource VaultTableItemContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
+                                    <Grid Margin="0,8,0,4">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="16" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Border Grid.Row="1" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
+                                            <ListView Margin="0,22,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
                                     <Grid
                                         Padding="12,10"
                                         AutomationProperties.Name="{x:Bind Title}"
                                         ColumnSpacing="20">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="1" />
-                                        </Grid.RowDefinitions>
                                         <Grid.Resources>
                                             <Style BasedOn="{StaticResource VaultRowIconButtonStyle}" TargetType="Button" />
                                             <Style BasedOn="{StaticResource VaultRowSymbolStyle}" TargetType="SymbolIcon" />
@@ -316,7 +303,6 @@
                                             <ColumnDefinition Width="1*" />
                                             <ColumnDefinition Width="120" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Row="1" Grid.ColumnSpan="6" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.18" />
                                         <Border Grid.Column="1" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
                                         <Border Grid.Column="2" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
                                         <Border Grid.Column="3" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
@@ -355,27 +341,36 @@
                                             <TextBlock VerticalAlignment="Center" Text="{x:Bind RecoveryCodesDisplay}" />
                                             <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewRecoveryCodes', Id)}" AutomationProperties.Name="View recovery codes" Padding="4" Tag="{x:Bind Id}" Click="RevealRecoveryCodesRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasRecoveryCodes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
                                         </Grid>
-                                        <Grid Grid.Column="5" ColumnSpacing="4" VerticalAlignment="Center">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                            <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
+                                        <Grid Grid.Column="5" VerticalAlignment="Center">
+                                            <TextBlock Margin="0,0,36,0" VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                            <Button HorizontalAlignment="{x:Bind local:MainPage.NotesRevealAlignment(HideNotes), Mode=OneTime}" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
                                         </Grid>
                                     </Grid>
                                                     </DataTemplate>
                                                 </ListView.ItemTemplate>
                                             </ListView>
-                                        </Grid>
-                                      </StackPanel>
-                                    </Border>
+                                        </Border>
+                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Canvas.ZIndex="1" Padding="12,6" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
+                                                <TextBlock MaxWidth="280" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Opacity="0.72" Text="{x:Bind CountText}" />
+                                            </StackPanel>
+                                            <Button.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Click="RenameGroupMenuItem_Click" Tag="{x:Bind}" Text="Rename" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
+                                                    <MenuFlyoutItem Click="ChangeGroupColorMenuItem_Click" Tag="{x:Bind}" Text="Change color" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
+                                                    <MenuFlyoutItem Click="DeleteGroupMenuItem_Click" Tag="{x:Bind}" Text="Delete group" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
+                                                </MenuFlyout>
+                                            </Button.ContextFlyout>
+                                        </Button>
+                                    </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
                     </Grid>
 
-                    <Grid x:Name="WideVaultListRegion" Grid.Row="3" Visibility="Collapsed">
+                    <Grid x:Name="WideVaultListRegion" Grid.Row="2" Visibility="Collapsed">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
@@ -407,31 +402,16 @@
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
-                                    <Border Margin="0,8,0,4" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8">
-                                      <StackPanel>
-                                        <Button Margin="14,6,0,4" HorizontalAlignment="Left" Padding="12,6" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
-                                                <TextBlock MaxWidth="360" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Opacity="0.72" Text="{x:Bind CountText}" />
-                                            </StackPanel>
-                                            <Button.ContextFlyout>
-                                                <MenuFlyout>
-                                                    <MenuFlyoutItem Click="RenameGroupMenuItem_Click" Tag="{x:Bind}" Text="Rename" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
-                                                    <MenuFlyoutItem Click="ChangeGroupColorMenuItem_Click" Tag="{x:Bind}" Text="Change color" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
-                                                    <MenuFlyoutItem Click="DeleteGroupMenuItem_Click" Tag="{x:Bind}" Text="Delete group" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
-                                                </MenuFlyout>
-                                            </Button.ContextFlyout>
-                                        </Button>
-                                        <Grid Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}">
-                                            <ListView ItemContainerStyle="{StaticResource VaultTableItemContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
+                                    <Grid Margin="0,8,0,4">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="16" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Border Grid.Row="1" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
+                                            <ListView Margin="0,22,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
                                     <Grid Padding="12,10" AutomationProperties.Name="{x:Bind Title}" ColumnSpacing="20">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="1" />
-                                        </Grid.RowDefinitions>
                                         <Grid.Resources>
                                             <Style BasedOn="{StaticResource VaultRowIconButtonStyle}" TargetType="Button" />
                                             <Style BasedOn="{StaticResource VaultRowSymbolStyle}" TargetType="SymbolIcon" />
@@ -445,7 +425,6 @@
                                             <ColumnDefinition Width="1.2*" />
                                             <ColumnDefinition Width="1.2*" />
                                         </Grid.ColumnDefinitions>
-                                    <Border Grid.Row="1" Grid.ColumnSpan="7" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.18" />
                                     <Border Grid.Column="1" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
                                     <Border Grid.Column="2" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
                                     <Border Grid.Column="3" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
@@ -485,22 +464,31 @@
                                         <TextBlock VerticalAlignment="Center" Text="{x:Bind RecoveryCodesDisplay}" />
                                         <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewRecoveryCodes', Id)}" AutomationProperties.Name="View recovery codes" Padding="4" Tag="{x:Bind Id}" Click="RevealRecoveryCodesRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasRecoveryCodes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
                                     </Grid>
-                                    <Grid Grid.Column="5" ColumnSpacing="4" VerticalAlignment="Center">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                        <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
+                                    <Grid Grid.Column="5" VerticalAlignment="Center">
+                                        <TextBlock Margin="0,0,36,0" VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                        <Button HorizontalAlignment="{x:Bind local:MainPage.NotesRevealAlignment(HideNotes), Mode=OneTime}" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
                                     </Grid>
                                     <TextBlock Grid.Column="6" VerticalAlignment="Center" Text="{x:Bind UpdatedDisplay}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                                     </DataTemplate>
                                                 </ListView.ItemTemplate>
                                             </ListView>
-                                        </Grid>
-                                      </StackPanel>
-                                    </Border>
+                                        </Border>
+                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" Canvas.ZIndex="1" HorizontalAlignment="Left" Padding="12,6" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
+                                                <TextBlock MaxWidth="360" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Opacity="0.72" Text="{x:Bind CountText}" />
+                                            </StackPanel>
+                                            <Button.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Click="RenameGroupMenuItem_Click" Tag="{x:Bind}" Text="Rename" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
+                                                    <MenuFlyoutItem Click="ChangeGroupColorMenuItem_Click" Tag="{x:Bind}" Text="Change color" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
+                                                    <MenuFlyoutItem Click="DeleteGroupMenuItem_Click" Tag="{x:Bind}" Text="Delete group" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsSystemGroup), Mode=OneTime}" />
+                                                </MenuFlyout>
+                                            </Button.ContextFlyout>
+                                        </Button>
+                                    </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
