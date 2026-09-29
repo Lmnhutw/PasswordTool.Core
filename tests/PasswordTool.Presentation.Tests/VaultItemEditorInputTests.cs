@@ -51,7 +51,7 @@ public sealed class VaultItemEditorInputTests
         string.Empty,
         "https://example.com",
         string.Empty,
-        string.Empty,
+        null,
         string.Empty,
         false,
         false,

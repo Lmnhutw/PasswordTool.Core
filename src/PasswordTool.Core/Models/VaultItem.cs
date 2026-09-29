@@ -41,7 +41,12 @@ public sealed class VaultItem
 
     public bool IsFavorite { get; set; }
 
-    public string Folder { get; set; } = string.Empty;
+    public Guid? GroupId { get; set; }
+
+    // Read only while migrating vaults/imports created before Groups existed.
+    [JsonPropertyName("Folder")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string? LegacyFolder { get; set; }
 
     public List<string> Tags { get; set; } = [];
 

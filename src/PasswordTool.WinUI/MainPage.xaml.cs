@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PasswordTool.Core.Models;
 using PasswordTool.Presentation;
@@ -47,6 +48,24 @@ public sealed partial class MainPage : Page
     public static Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility InvertBoolToVisibility(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
     public static string ItemAutomationId(string action, Guid id) => $"{action}_{id:N}";
+    public static string GroupAutomationId(Guid? id) => id is null ? "Group_Ungrouped" : $"Group_{id:N}";
+    public static string GroupChevron(bool expanded) => expanded ? "\uE70D" : "\uE76C";
+    public static Brush GroupBrush(string? value) => string.IsNullOrWhiteSpace(value)
+        ? (Brush)Application.Current.Resources["ControlStrongStrokeColorDefaultBrush"]
+        : new SolidColorBrush(Windows.UI.Color.FromArgb(255,
+            Convert.ToByte(value.Substring(1, 2), 16),
+            Convert.ToByte(value.Substring(3, 2), 16),
+            Convert.ToByte(value.Substring(5, 2), 16)));
+    public static Brush GroupTextBrush(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+        var r = Convert.ToByte(value.Substring(1, 2), 16);
+        var g = Convert.ToByte(value.Substring(3, 2), 16);
+        var b = Convert.ToByte(value.Substring(5, 2), 16);
+        return new SolidColorBrush((r * 299 + g * 587 + b * 114) / 1000 >= 140
+            ? Windows.UI.Color.FromArgb(255, 0, 0, 0)
+            : Windows.UI.Color.FromArgb(255, 255, 255, 255));
+    }
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
@@ -336,19 +355,59 @@ public sealed partial class MainPage : Page
         EditorItemTitle.Focus(FocusState.Programmatic);
     }
 
-    private async void VaultItems_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => await OpenSelectedEditorAsync();
+    private async void AddGroupButton_Click(object sender, RoutedEventArgs e)
+    {
+        var name = await PromptAsync("Create group", "Group name", string.Empty);
+        if (name is not null) await ViewModel.CreateGroupAsync(name);
+    }
+
+    private async void VaultItems_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (sender is ListView { SelectedItem: VaultItemListItem item }) await OpenEditorAsync(item.Id);
+    }
 
     private async void VaultItems_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != Windows.System.VirtualKey.Enter) return;
         e.Handled = true;
-        await OpenSelectedEditorAsync();
+        if (sender is ListView { SelectedItem: VaultItemListItem item }) await OpenEditorAsync(item.Id);
     }
 
     private async Task OpenSelectedEditorAsync()
     {
         if (ViewModel.Vault.SelectedItem is not { } selected) return;
         await OpenEditorAsync(selected.Id);
+    }
+
+    private void GroupHeaderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is VaultItemGroup group) ViewModel.Vault.ToggleGroup(group);
+    }
+
+    private async void RenameGroupMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not VaultItemGroup { Id: { } id } group) return;
+        var name = await PromptAsync("Rename group", "Group name", group.Name);
+        if (name is not null) await ViewModel.UpdateGroupAsync(id, name, group.AccentColor);
+    }
+
+    private async void ChangeGroupColorMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not VaultItemGroup { Id: { } id } group) return;
+        var color = await PromptAsync("Change group color", "Accent color (#RRGGBB), or leave blank for default", group.AccentColor ?? string.Empty);
+        if (color is not null) await ViewModel.UpdateGroupAsync(id, group.Name, color);
+    }
+
+    private async void DeleteGroupMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is VaultItemGroup { Id: { } id } group) await ViewModel.DeleteGroupAsync(id, group.Name);
+    }
+
+    private async Task<string?> PromptAsync(string title, string header, string value)
+    {
+        var input = new TextBox { Header = header, Text = value, MinWidth = 320 };
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? input.Text : null;
     }
 
     private async Task OpenEditorAsync(Guid itemId)
@@ -364,7 +423,7 @@ public sealed partial class MainPage : Page
         EditorRecoveryCodes.Text = string.Join(Environment.NewLine, item.RecoveryCodes);
         preservedTotpSecret = item.TotpSecretBase32;
         EditorUrl.Text = item.Url;
-        EditorFolder.Text = item.Folder;
+        EditorGroup.SelectedItem = ViewModel.Vault.GroupOptions.FirstOrDefault(option => option.GroupId == item.GroupId && !option.CreatesNew) ?? ViewModel.Vault.GroupOptions[0];
         EditorTags.Text = string.Join(", ", item.Tags);
         EditorNotes.Text = item.Notes;
         EditorFavorite.IsChecked = item.IsFavorite;
@@ -377,6 +436,15 @@ public sealed partial class MainPage : Page
 
     private async void SaveEditorButton_Click(object sender, RoutedEventArgs e)
     {
+        var groupOption = EditorGroup.SelectedItem as VaultGroupOption ?? ViewModel.Vault.GroupOptions[0];
+        if (groupOption.CreatesNew)
+        {
+            var name = await PromptAsync("Create group", "Group name", string.Empty);
+            if (name is null) return;
+            var group = await ViewModel.CreateGroupAsync(name);
+            if (group is null) return;
+            groupOption = ViewModel.Vault.GroupOptions.First(option => option.GroupId == group.Id);
+        }
         var saved = await ViewModel.SaveItemAsync(new VaultItemEditorInput(
             editingItemId,
             EditorItemTitle.Text,
@@ -386,7 +454,7 @@ public sealed partial class MainPage : Page
             preservedTotpSecret,
             EditorUrl.Text,
             EditorNotes.Text,
-            EditorFolder.Text,
+            groupOption.GroupId,
             EditorTags.Text,
             EditorFavorite.IsChecked == true,
             EditorHideUrl.IsChecked == true,
@@ -419,7 +487,7 @@ public sealed partial class MainPage : Page
         EditorPassword.Password = string.Empty;
         EditorRecoveryCodes.Text = string.Empty;
         EditorUrl.Text = string.Empty;
-        EditorFolder.Text = string.Empty;
+        EditorGroup.SelectedIndex = 0;
         EditorTags.Text = string.Empty;
         EditorNotes.Text = string.Empty;
         EditorFavorite.IsChecked = false;
@@ -466,6 +534,11 @@ public sealed partial class MainPage : Page
     private async void RevealRecoveryCodesRowButton_Click(object sender, RoutedEventArgs e)
     {
         if (GetItemId(sender) is { } id) await ViewModel.RevealRecoveryCodesAsync(id);
+    }
+
+    private async void RevealNotesRowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetItemId(sender) is { } id) await ViewModel.RevealNotesAsync(id);
     }
 
     private async void EditRowMenuItem_Click(object sender, RoutedEventArgs e)

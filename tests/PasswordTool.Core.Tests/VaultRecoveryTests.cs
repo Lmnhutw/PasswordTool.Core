@@ -30,7 +30,7 @@ public sealed class VaultRecoveryTests : IDisposable
             Title = "Recovery codes",
             RecoveryCodes = ["abcd-1234", "efgh-5678"],
             Notes = "private recovery note",
-            Folder = "Archive",
+            LegacyFolder = "Archive",
             Tags = ["recovery"],
             IsDeleted = true,
             DeletedAt = now.AddDays(-1),
@@ -71,7 +71,8 @@ public sealed class VaultRecoveryTests : IDisposable
         Assert.Equal(item.Notes, restored.Notes);
         Assert.Equal(item.HideNotes, restored.HideNotes);
         Assert.Equal(item.IsFavorite, restored.IsFavorite);
-        Assert.Equal(item.Folder, restored.Folder);
+        var restoredGroup = Assert.Single(vault.GetGroups(), group => group.Name == "Personal");
+        Assert.Equal(restoredGroup.Id, restored.GroupId);
         Assert.Equal(item.Tags, restored.Tags);
         Assert.Equal(item.Password, vault.GetPassword(item.Id, code));
         Assert.Single(vault.GetPasswordHistory(item.Id, code));
@@ -277,7 +278,7 @@ public sealed class VaultRecoveryTests : IDisposable
         Notes = "private note",
         HideNotes = true,
         IsFavorite = true,
-        Folder = "Personal",
+        LegacyFolder = "Personal",
         Tags = ["email", "important"],
         CreatedAt = now.AddYears(-1),
         UpdatedAt = now

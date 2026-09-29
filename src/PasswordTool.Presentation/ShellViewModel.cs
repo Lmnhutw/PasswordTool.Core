@@ -245,9 +245,9 @@ public sealed partial class ShellViewModel : ObservableObject
         return await GetItemForEditingAsync(selected.Id);
     }
 
-    public async Task<VaultItem?> GetItemForEditingAsync(Guid itemId)
+    public async Task<VaultItem?> GetItemForEditingAsync(Guid itemId, string title = "Edit item", string message = "Confirm before loading secret fields for editing.")
     {
-        var code = await RequestSensitiveCodeAsync("Edit item", "Confirm before loading secret fields for editing.");
+        var code = await RequestSensitiveCodeAsync(title, message);
         if (code is null) return null;
         try
         {
@@ -277,6 +277,30 @@ public sealed partial class ShellViewModel : ObservableObject
             ShowMappedError(exception);
             return false;
         }
+    }
+
+    public async Task<VaultGroup?> CreateGroupAsync(string name, string? accentColor = null)
+    {
+        try
+        {
+            var group = await flow.AddGroupAsync(name, accentColor);
+            await Vault.RefreshAsync();
+            return group;
+        }
+        catch (Exception exception) { ShowMappedError(exception); return null; }
+    }
+
+    public async Task<bool> UpdateGroupAsync(Guid id, string name, string? accentColor)
+    {
+        try { await flow.UpdateGroupAsync(id, name, accentColor); await Vault.RefreshAsync(); return true; }
+        catch (Exception exception) { ShowMappedError(exception); return false; }
+    }
+
+    public async Task DeleteGroupAsync(Guid id, string name)
+    {
+        if (!await dialogs.ConfirmAsync("Delete group", $"Delete '{name}'? Its credentials will move to Ungrouped.", "Delete group")) return;
+        try { await flow.DeleteGroupAsync(id); await Vault.RefreshAsync(); }
+        catch (Exception exception) { ShowMappedError(exception); }
     }
 
     public async Task DeleteItemAsync(Guid itemId)
@@ -329,6 +353,29 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             var codes = await flow.GetRecoveryCodesAsync(itemId, code);
             await dialogs.ShowSecretAsync("Recovery codes", string.Join(Environment.NewLine, codes), multiline: true);
+        }
+        catch (Exception exception)
+        {
+            ShowMappedError(exception);
+        }
+    }
+
+    public async Task RevealNotesAsync(Guid itemId)
+    {
+        var item = Vault.Items.FirstOrDefault(candidate => candidate.Id == itemId);
+        if (item is null || !item.HasNotes) return;
+
+        var notes = item.Notes;
+        if (item.HideNotes)
+        {
+            var fullItem = await GetItemForEditingAsync(itemId, "View notes", "Confirm before revealing hidden notes.");
+            if (fullItem is null) return;
+            notes = fullItem.Notes;
+        }
+
+        try
+        {
+            await dialogs.ShowSecretAsync("Notes", notes, multiline: true);
         }
         catch (Exception exception)
         {

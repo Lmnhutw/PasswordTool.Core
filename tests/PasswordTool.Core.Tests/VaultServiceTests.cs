@@ -13,6 +13,25 @@ public sealed class VaultServiceTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void Group_is_optional_single_valued_and_deletion_moves_items_to_ungrouped()
+    {
+        var totpService = new TotpService();
+        var secret = totpService.GenerateSecret();
+        using var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totpService);
+        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        var group = vault.AddGroup("Database", "#336699");
+        var item = vault.AddItem(new VaultItem { Title = "PostgreSQL", Password = "secret", GroupId = group.Id });
+
+        Assert.Equal(group.Id, item.GroupId);
+        Assert.Single(vault.GetGroups());
+
+        vault.DeleteGroup(group.Id);
+
+        Assert.Null(Assert.Single(vault.GetItems()).GroupId);
+        Assert.Empty(vault.GetGroups());
+    }
+
+    [Fact]
     public void Vault_storage_is_encrypted_and_supports_master_password_and_trusted_totp_login()
     {
         var storage = new VaultStorageService(tempDirectory);
@@ -234,7 +253,7 @@ public sealed class VaultServiceTests : IDisposable
             Notes = "Private note",
             HideNotes = true,
             IsFavorite = true,
-            Folder = "Personal",
+            LegacyFolder = "Personal",
             Tags = ["email", "important"],
             TotpSecretBase32 = "JBSWY3DPEHPK3PXP"
         });
@@ -245,7 +264,7 @@ public sealed class VaultServiceTests : IDisposable
         Assert.Equal("https://example.com", savedItem.Url);
         Assert.Equal("Private note", savedItem.Notes);
         Assert.True(savedItem.IsFavorite);
-        Assert.Equal("Personal", savedItem.Folder);
+        Assert.Equal("Personal", savedItem.LegacyFolder);
         Assert.Equal(["email", "important"], savedItem.Tags);
         Assert.Equal("JBSWY3DPEHPK3PXP", savedItem.TotpSecretBase32);
         Assert.DoesNotContain("JBSWY3DPEHPK3PXP", File.ReadAllText(storage.VaultPath));

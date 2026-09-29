@@ -26,7 +26,7 @@ public sealed class VaultBackupServiceTests
         Assert.Equal("account-password", restored[0].Password);
         Assert.Equal("JBSWY3DPEHPK3PXP", restored[0].TotpSecretBase32);
         Assert.True(restored[0].IsFavorite);
-        Assert.Equal("Personal", restored[0].Folder);
+        Assert.Equal("Personal", restored[0].LegacyFolder);
         Assert.Equal(["email", "important"], restored[0].Tags);
         Assert.Equal(VaultItemType.RecoveryCodes, restored[1].Type);
         Assert.Equal(["abcd-1234", "efgh-5678"], restored[1].RecoveryCodes);
@@ -155,7 +155,7 @@ public sealed class VaultBackupServiceTests
                 Password = "account-password",
                 TotpSecretBase32 = "JBSWY3DPEHPK3PXP",
                 IsFavorite = true,
-                Folder = "Personal",
+                LegacyFolder = "Personal",
                 Tags = ["email", "important"]
             },
             new VaultItem
@@ -184,7 +184,7 @@ public sealed class VaultBackupServiceTests
             Notes = item.Notes,
             HideNotes = item.HideNotes,
             IsFavorite = item.IsFavorite,
-            Folder = item.Folder,
+            LegacyFolder = item.LegacyFolder,
             Tags = [.. item.Tags],
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt

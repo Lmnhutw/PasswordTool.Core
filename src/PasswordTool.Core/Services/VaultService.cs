@@ -239,6 +239,7 @@ public sealed class VaultService : IDisposable
             config.UpdatedAt = now;
             config.LastVerifiedBackupAt = now;
             var recoveredVault = new VaultData { Items = recoveredItems.Select(item => Clone(item, includePassword: true)).ToList() };
+            NormalizeGroups(recoveredVault, now);
             var payload = encryptionService.EncryptObject(recoveredVault, vaultKey, MasterPasswordService.VaultContext);
             storageService.SaveState(config, payload);
 
@@ -277,6 +278,7 @@ public sealed class VaultService : IDisposable
                 : encryptionService.DecryptObject<VaultData>(encryptedVaultJson, unlockedKey);
             decryptedVault.Items ??= [];
             NormalizeItems(decryptedVault.Items, utcNow());
+            NormalizeGroups(decryptedVault, utcNow());
 
             var status = VaultUnlockStatus.Unlocked;
             var message = string.Empty;
@@ -368,6 +370,7 @@ public sealed class VaultService : IDisposable
                 MasterPasswordService.VaultContext);
             decryptedVault.Items ??= [];
             NormalizeItems(decryptedVault.Items, utcNow());
+            NormalizeGroups(decryptedVault, utcNow());
 
             encryptionKey = trustedKey;
             trustedKey = null;
@@ -653,6 +656,52 @@ public sealed class VaultService : IDisposable
             .ToList();
     }
 
+    public IReadOnlyList<VaultGroup> GetGroups()
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        return vaultData!.Groups.OrderBy(group => group.SortOrder).ThenBy(group => group.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(CloneGroup).ToList();
+    }
+
+    public VaultGroup AddGroup(string name, string? accentColor = null)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        name = ValidateGroupName(name);
+        if (vaultData!.Groups.Any(group => string.Equals(group.Name, name, StringComparison.CurrentCultureIgnoreCase)))
+            throw new ArgumentException("A group with this name already exists.", nameof(name));
+        var now = utcNow();
+        var group = new VaultGroup { Name = name, AccentColor = NormalizeAccentColor(accentColor), SortOrder = vaultData.Groups.Count, CreatedAt = now, UpdatedAt = now };
+        vaultData.Groups.Add(group);
+        SaveVault();
+        return CloneGroup(group);
+    }
+
+    public void UpdateGroup(Guid id, string name, string? accentColor)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        name = ValidateGroupName(name);
+        if (vaultData!.Groups.Any(group => group.Id != id && string.Equals(group.Name, name, StringComparison.CurrentCultureIgnoreCase)))
+            throw new ArgumentException("A group with this name already exists.", nameof(name));
+        var group = vaultData.Groups.FirstOrDefault(group => group.Id == id) ?? throw new KeyNotFoundException("Group not found.");
+        group.Name = name;
+        group.AccentColor = NormalizeAccentColor(accentColor);
+        group.UpdatedAt = utcNow();
+        SaveVault();
+    }
+
+    public void DeleteGroup(Guid id)
+    {
+        ThrowIfDisposed();
+        EnsureOpen();
+        var group = vaultData!.Groups.FirstOrDefault(group => group.Id == id) ?? throw new KeyNotFoundException("Group not found.");
+        foreach (var item in vaultData.Items.Where(item => item.GroupId == id)) item.GroupId = null;
+        vaultData.Groups.Remove(group);
+        SaveVault();
+    }
+
     public VaultItem GetItemForEditing(Guid id, string totpCode)
     {
         ThrowIfDisposed();
@@ -842,6 +891,8 @@ public sealed class VaultService : IDisposable
             .Select(item => Clone(item, includePassword: true))
             .ToList();
 
+        foreach (var item in newItems.Where(item => item.GroupId is not null && !vaultData.Groups.Any(group => group.Id == item.GroupId))) item.GroupId = null;
+
         vaultData.Items.AddRange(newItems);
         try
         {
@@ -883,6 +934,7 @@ public sealed class VaultService : IDisposable
         }
 
         var now = utcNow();
+        MigrateImportedFolders(newItems, now);
         foreach (var item in newItems)
         {
             item.Id = Guid.NewGuid();
@@ -962,7 +1014,7 @@ public sealed class VaultService : IDisposable
         existing.Notes = item.Notes;
         existing.HideNotes = item.HideNotes;
         existing.IsFavorite = item.IsFavorite;
-        existing.Folder = item.Folder.Trim();
+        existing.GroupId = item.GroupId;
         existing.Tags = [.. item.Tags];
         existing.UpdatedAt = now;
         if (!hasPassword)
@@ -1262,7 +1314,8 @@ public sealed class VaultService : IDisposable
             .Where(tag => tag.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        item.Folder = item.Folder?.Trim() ?? string.Empty;
+        if (item.GroupId is { } groupId && !vaultData!.Groups.Any(group => group.Id == groupId))
+            throw new ArgumentException("The selected group does not exist.", nameof(item));
         if (string.IsNullOrWhiteSpace(item.Password) && item.RecoveryCodes.Count == 0)
         {
             throw new ArgumentException("A password or at least two recovery codes are required.", nameof(item));
@@ -1309,7 +1362,8 @@ public sealed class VaultService : IDisposable
             Notes = item.Notes,
             HideNotes = item.HideNotes,
             IsFavorite = item.IsFavorite,
-            Folder = item.Folder,
+            GroupId = item.GroupId,
+            LegacyFolder = item.LegacyFolder,
             Tags = [.. item.Tags],
             PasswordHistory = includePassword
                 ? item.PasswordHistory.Select(entry => new PasswordHistoryEntry
@@ -1361,5 +1415,74 @@ public sealed class VaultService : IDisposable
                 item.PasswordChangedAt = PasswordLifecycle.GetEffectivePasswordChangedAt(item, utcNow);
             }
         }
+    }
+
+    private static void NormalizeGroups(VaultData data, DateTimeOffset now)
+    {
+        data.Groups ??= [];
+        foreach (var group in data.Groups)
+        {
+            group.Name = ValidateGroupName(group.Name);
+            group.AccentColor = NormalizeAccentColor(group.AccentColor);
+        }
+        foreach (var item in data.Items)
+        {
+            if (string.IsNullOrWhiteSpace(item.LegacyFolder)) continue;
+            var name = item.LegacyFolder.Trim();
+            var group = data.Groups.FirstOrDefault(group => string.Equals(group.Name, name, StringComparison.CurrentCultureIgnoreCase));
+            if (group is null)
+            {
+                group = new VaultGroup { Name = name, SortOrder = data.Groups.Count, CreatedAt = now, UpdatedAt = now };
+                data.Groups.Add(group);
+            }
+            item.GroupId = group.Id;
+            item.LegacyFolder = null;
+        }
+        var validIds = data.Groups.Select(group => group.Id).ToHashSet();
+        foreach (var item in data.Items.Where(item => item.GroupId is not null && !validIds.Contains(item.GroupId.Value))) item.GroupId = null;
+    }
+
+    private void MigrateImportedFolders(IEnumerable<VaultItem> items, DateTimeOffset now)
+    {
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item.LegacyFolder)) continue;
+            var name = item.LegacyFolder.Trim();
+            var group = vaultData!.Groups.FirstOrDefault(group => string.Equals(group.Name, name, StringComparison.CurrentCultureIgnoreCase));
+            if (group is null)
+            {
+                group = new VaultGroup { Name = name, SortOrder = vaultData.Groups.Count, CreatedAt = now, UpdatedAt = now };
+                vaultData.Groups.Add(group);
+            }
+            item.GroupId = group.Id;
+            item.LegacyFolder = null;
+        }
+    }
+
+    private static VaultGroup CloneGroup(VaultGroup group) => new()
+    {
+        Id = group.Id,
+        Name = group.Name,
+        AccentColor = group.AccentColor,
+        SortOrder = group.SortOrder,
+        CreatedAt = group.CreatedAt,
+        UpdatedAt = group.UpdatedAt
+    };
+
+    private static string ValidateGroupName(string name)
+    {
+        name = name?.Trim() ?? string.Empty;
+        if (name.Length == 0) throw new ArgumentException("Group name is required.", nameof(name));
+        if (name.Length > 100) throw new ArgumentException("Group name cannot exceed 100 characters.", nameof(name));
+        return name;
+    }
+
+    private static string? NormalizeAccentColor(string? value)
+    {
+        value = value?.Trim();
+        if (string.IsNullOrEmpty(value)) return null;
+        if (value.Length != 7 || value[0] != '#' || !int.TryParse(value.AsSpan(1), System.Globalization.NumberStyles.HexNumber, null, out _))
+            throw new ArgumentException("Accent color must use #RRGGBB format.", nameof(value));
+        return value.ToUpperInvariant();
     }
 }

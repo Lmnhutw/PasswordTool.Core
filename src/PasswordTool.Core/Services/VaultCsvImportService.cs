@@ -111,7 +111,7 @@ public sealed class VaultCsvImportService
                 TotpSecretBase32 = totpSecret,
                 Url = url,
                 Notes = GetField(row, notesIndex),
-                Folder = GetField(row, folderIndex).Trim(),
+                LegacyFolder = GetField(row, folderIndex).Trim(),
                 IsFavorite = ParseBoolean(GetField(row, favoriteIndex)),
                 Tags = ParseTags(GetField(row, tagsIndex))
             };

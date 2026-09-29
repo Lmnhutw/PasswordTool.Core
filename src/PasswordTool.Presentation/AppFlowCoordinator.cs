@@ -126,6 +126,18 @@ public sealed class AppFlowCoordinator
     public Task<IReadOnlyList<VaultItemListItem>> GetListItemsAsync(CancellationToken cancellationToken = default) =>
         operations.RunAsync(() => (IReadOnlyList<VaultItemListItem>)vaultService.GetItems().Select(VaultItemListItem.FromVaultItem).ToList(), cancellationToken);
 
+    public Task<IReadOnlyList<VaultGroup>> GetGroupsAsync(CancellationToken cancellationToken = default) =>
+        operations.RunAsync(vaultService.GetGroups, cancellationToken);
+
+    public Task<VaultGroup> AddGroupAsync(string name, string? accentColor = null, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.AddGroup(name, accentColor), cancellationToken);
+
+    public Task UpdateGroupAsync(Guid id, string name, string? accentColor, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.UpdateGroup(id, name, accentColor), cancellationToken);
+
+    public Task DeleteGroupAsync(Guid id, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.DeleteGroup(id), cancellationToken);
+
     public Task<TimeSpan> GetInactivityTimeoutAsync(CancellationToken cancellationToken = default) =>
         operations.RunAsync(
             () => TimeSpan.FromMinutes(vaultService.SecuritySettings.InactivityLockTimeoutMinutes),

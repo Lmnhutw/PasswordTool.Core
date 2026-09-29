@@ -24,7 +24,6 @@ public sealed class VaultBackupService
     private const int MaxNotesLength = 100_000;
     private const int MaxRecoveryCodes = 100;
     private const int MaxRecoveryCodeLength = 128;
-    private const int MaxFolderLength = 200;
     private const int MaxTags = 20;
     private const int MaxTagLength = 100;
     private const int MaxTotpSecretLength = 512;
@@ -189,7 +188,6 @@ public sealed class VaultBackupService
             ValidateLength(item.Username, MaxUsernameLength, "username");
             ValidateLength(item.Url, MaxUrlLength, "URL");
             ValidateLength(item.Notes, MaxNotesLength, "notes");
-            ValidateLength(item.Folder, MaxFolderLength, "folder");
             ValidateLength(item.TotpSecretBase32, MaxTotpSecretLength, "TOTP secret");
             item.Tags ??= [];
             item.PasswordHistory ??= [];
@@ -342,7 +340,7 @@ public sealed class VaultBackupService
             && left.Notes == right.Notes
             && left.HideNotes == right.HideNotes
             && left.IsFavorite == right.IsFavorite
-            && left.Folder == right.Folder
+            && left.GroupId == right.GroupId
             && left.IsDeleted == right.IsDeleted
             && left.DeletedAt == right.DeletedAt
             && left.CreatedAt == right.CreatedAt
@@ -373,7 +371,8 @@ public sealed class VaultBackupService
             Notes = item.Notes,
             HideNotes = item.HideNotes,
             IsFavorite = item.IsFavorite,
-            Folder = item.Folder,
+            GroupId = item.GroupId,
+            LegacyFolder = item.LegacyFolder,
             Tags = [.. item.Tags],
             IsDeleted = item.IsDeleted,
             DeletedAt = item.DeletedAt,
