@@ -28,7 +28,6 @@
                         <AdaptiveTrigger MinWindowWidth="1200" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="ShellNavigation.PaneDisplayMode" Value="Left" />
                         <Setter Target="CompactVaultListRegion.Visibility" Value="Collapsed" />
                         <Setter Target="WideVaultListRegion.Visibility" Value="Visible" />
                     </VisualState.Setters>
