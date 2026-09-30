@@ -25,7 +25,7 @@
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
             <Setter Property="RenderTransform">
                 <Setter.Value>
-                    <ScaleTransform ScaleX="1" ScaleY="1" />
+                    <ScaleTransform ScaleX="0.67" ScaleY="0.67" />
                 </Setter.Value>
             </Setter>
         </Style>
@@ -275,12 +275,13 @@
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
-                                    <Grid Margin="0,8,0,4" Padding="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                    <Grid Margin="0,8,0,4">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <Border Grid.Row="1" Background="{ThemeResource SubtleFillColorSecondaryBrush}" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
+                                        <Border Grid.Row="1" Padding="10" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" CornerRadius="8">
+                                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" MinHeight="40">
                                             <ListView Margin="0,0,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
@@ -349,7 +350,8 @@
                                                 </ListView.ItemTemplate>
                                             </ListView>
                                         </Border>
-                                        <Button Grid.Row="0" Margin="12,0,0,8" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="12,8" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
+                                        </Border>
+                                        <Button Grid.Row="0" Margin="12,0,0,-1" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="12,8" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" BorderThickness="0" CornerRadius="6,6,0,0">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
                                                 <TextBlock MaxWidth="280" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
@@ -401,12 +403,13 @@
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
-                                    <Grid Margin="0,8,0,4" Padding="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                    <Grid Margin="0,8,0,4">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <Border Grid.Row="1" Background="{ThemeResource SubtleFillColorSecondaryBrush}" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
+                                        <Border Grid.Row="1" Padding="10" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" CornerRadius="8">
+                                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" MinHeight="40">
                                             <ListView Margin="0,0,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
@@ -474,7 +477,8 @@
                                                 </ListView.ItemTemplate>
                                             </ListView>
                                         </Border>
-                                        <Button Grid.Row="0" Margin="12,0,0,8" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="12,8" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
+                                        </Border>
+                                        <Button Grid.Row="0" Margin="12,0,0,-1" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="12,8" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" BorderThickness="0" CornerRadius="6,6,0,0">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
                                                 <TextBlock MaxWidth="360" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
