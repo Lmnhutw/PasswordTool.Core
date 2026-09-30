@@ -47,23 +47,15 @@ public sealed partial class TrashViewModel(
     {
         if (SelectedItem is not { } item) return;
         if (!await dialogs.ConfirmAsync("Delete permanently", $"Permanently delete '{item.Title}'? This cannot be undone.", "Delete permanently")) return;
-        var code = await RequestSensitiveCodeAsync();
-        if (code is null) return;
         try
         {
-            await flow.PermanentlyDeleteItemAsync(item.Id, code);
+            await flow.PermanentlyDeleteItemAsync(item.Id, string.Empty);
             await LoadAsync();
         }
         catch (Exception exception)
         {
             ShowError(exception);
         }
-    }
-
-    private async Task<string?> RequestSensitiveCodeAsync()
-    {
-        if (await flow.IsSensitiveSessionActiveAsync()) return string.Empty;
-        return await dialogs.PromptSensitiveTotpAsync("Delete permanently", "Confirm before permanently deleting this item.");
     }
 
     private void ShowError(Exception exception)

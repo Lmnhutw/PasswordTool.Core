@@ -5,22 +5,7 @@ namespace PasswordTool.Presentation;
 
 public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErrorMapper errorMapper) : ObservableObject
 {
-    public IReadOnlyList<LoginModeOption> LoginModes { get; } =
-    [
-        new("Master Password or Authenticator", VaultLoginMode.Hybrid),
-        new("Prefer Authenticator", VaultLoginMode.GoogleAuthenticatorCode)
-    ];
-
-    public IReadOnlyList<VaultOpenDurationOption> VaultOpenDurations { get; } =
-    [
-        new("1 minute", 1), new("5 minutes", 5), new("10 minutes", 10),
-        new("30 minutes", 30), new("1 hour", 60), new("2 hours", 120)
-    ];
-
-    [ObservableProperty] public partial LoginModeOption SelectedLoginMode { get; set; } = null!;
-    [ObservableProperty] public partial VaultOpenDurationOption SelectedVaultOpenDuration { get; set; } = null!;
     [ObservableProperty] public partial double InactivityTimeoutMinutes { get; set; } = VaultSecuritySettings.DefaultInactivityLockTimeoutMinutes;
-    [ObservableProperty] public partial double SensitiveActionTimeoutMinutes { get; set; } = VaultSecuritySettings.DefaultSensitiveActionTimeoutMinutes;
     [ObservableProperty] public partial bool NeedsKdfUpgrade { get; set; }
     [ObservableProperty] public partial string BackupHealthText { get; set; } = string.Empty;
     [ObservableProperty] public partial string StatusMessage { get; set; } = string.Empty;
@@ -33,10 +18,7 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
         try
         {
             var snapshot = await flow.GetSettingsAsync();
-            SelectedLoginMode = LoginModes.First(option => option.Value == snapshot.LoginMode);
             InactivityTimeoutMinutes = snapshot.InactivityTimeoutMinutes;
-            SensitiveActionTimeoutMinutes = snapshot.SensitiveActionTimeoutMinutes;
-            SelectedVaultOpenDuration = VaultOpenDurations.First(option => option.Minutes == snapshot.VaultOpenDurationMinutes);
             NeedsKdfUpgrade = snapshot.NeedsKdfUpgrade;
             BackupHealthText = $"Last external backup: {FormatDate(snapshot.LastExternalBackupAt)} · " +
                 $"Last verified: {FormatDate(snapshot.LastVerifiedBackupAt)}";
@@ -53,13 +35,9 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
 
     public async Task<bool> SaveAsync(string masterPassword)
     {
-        if (SelectedLoginMode is null || SelectedVaultOpenDuration is null) return false;
         var result = await flow.UpdateSettingsAsync(
             masterPassword,
-            SelectedLoginMode.Value,
-            (int)InactivityTimeoutMinutes,
-            (int)SensitiveActionTimeoutMinutes,
-            SelectedVaultOpenDuration.Minutes);
+            (int)InactivityTimeoutMinutes);
         return Complete(result, "Security settings saved.");
     }
 
@@ -88,7 +66,7 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
     public async Task<bool> ResetAuthenticatorAsync(string masterPassword, AuthenticatorSetup setup, string code)
     {
         var result = await flow.ResetAuthenticatorAsync(masterPassword, setup, code);
-        return Complete(result, "Authenticator reset. Existing trusted unlock tokens were replaced.");
+        return Complete(result, "Authenticator reset.");
     }
 
     private bool Complete(OperationResult result, string successMessage)

@@ -22,7 +22,7 @@ public sealed class VaultService : IDisposable
     private VaultData? vaultData;
     private bool isVaultOpen;
     private bool encryptionUsesEnvelope;
-    private DateTimeOffset? sensitiveSessionExpiresAt;
+    private DateTimeOffset? signInSessionExpiresAt;
     private bool disposed;
 
     public VaultService()
@@ -61,9 +61,7 @@ public sealed class VaultService : IDisposable
 
     public string TrustedUnlockTokenPath => storageService.TrustedUnlockTokenPath;
 
-    public bool IsSensitiveSessionActive => sensitiveSessionExpiresAt is { } expiresAt && expiresAt > utcNow();
-
-    public DateTimeOffset? SensitiveSessionExpiresAt => IsSensitiveSessionActive ? sensitiveSessionExpiresAt : null;
+    public bool IsSignInSessionActive => signInSessionExpiresAt is { } expiresAt && expiresAt > utcNow();
 
     public bool IsGoogleAuthenticatorConfigured
     {
@@ -109,7 +107,7 @@ public sealed class VaultService : IDisposable
         get
         {
             ThrowIfDisposed();
-            return storageService.LoadConfig().LoginMode;
+            return VaultLoginMode.Hybrid;
         }
     }
 
@@ -182,6 +180,7 @@ public sealed class VaultService : IDisposable
             this.totpSecretBase32 = totpSecretBase32;
             vaultData = data;
             isVaultOpen = true;
+            signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
             SaveTrustedUnlockToken(config);
         }
         finally { if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey); }
@@ -252,6 +251,7 @@ public sealed class VaultService : IDisposable
             totpSecretBase32 = request.NewTotpSecretBase32;
             vaultData = recoveredVault;
             isVaultOpen = true;
+            signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
             SaveTrustedUnlockToken(config);
         }
         finally { if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey); }
@@ -380,6 +380,7 @@ public sealed class VaultService : IDisposable
             totpSecretBase32 = decryptedTotpSecret;
             vaultData = decryptedVault;
             isVaultOpen = true;
+            signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
             PurgeExpiredTrash();
             return true;
         }
@@ -403,8 +404,7 @@ public sealed class VaultService : IDisposable
 
         if (totpSecretBase32 is null)
         {
-            isVaultOpen = true;
-            return true;
+            return false;
         }
 
         if (!totpService.VerifyCode(totpSecretBase32!, code))
@@ -413,6 +413,7 @@ public sealed class VaultService : IDisposable
         }
 
         isVaultOpen = true;
+        signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
         return true;
     }
 
@@ -425,24 +426,7 @@ public sealed class VaultService : IDisposable
             return true;
         }
 
-        if (IsSensitiveSessionActive)
-        {
-            return true;
-        }
-
-        if (!totpService.VerifyCode(totpSecretBase32, code))
-        {
-            return false;
-        }
-
-        sensitiveSessionExpiresAt = utcNow().AddMinutes(SecuritySettings.SensitiveActionTimeoutMinutes);
-        return true;
-    }
-
-    public void ClearSensitiveSession()
-    {
-        ThrowIfDisposed();
-        sensitiveSessionExpiresAt = null;
+        return IsSignInSessionActive;
     }
 
     public bool TrySetLoginMode(string masterPassword, VaultLoginMode loginMode, out string errorMessage)
@@ -460,12 +444,6 @@ public sealed class VaultService : IDisposable
         EnsureOpen();
         errorMessage = string.Empty;
         ArgumentNullException.ThrowIfNull(securitySettings);
-
-        if (!Enum.IsDefined(loginMode))
-        {
-            errorMessage = "The selected login mode is not supported.";
-            return false;
-        }
 
         try
         {
@@ -490,13 +468,18 @@ public sealed class VaultService : IDisposable
                 return false;
             }
 
-            config.LoginMode = loginMode;
+            if (loginMode != VaultLoginMode.Hybrid)
+            {
+                errorMessage = "PasswordTool requires both the Master Password and Google Authenticator.";
+                return false;
+            }
+
+            config.LoginMode = VaultLoginMode.Hybrid;
             config.InactivityLockTimeoutMinutes = securitySettings.InactivityLockTimeoutMinutes;
             config.SensitiveActionTimeoutMinutes = securitySettings.SensitiveActionTimeoutMinutes;
             config.VaultOpenDurationMinutes = securitySettings.VaultOpenDurationMinutes;
             config.UpdatedAt = utcNow();
             storageService.SaveConfig(config);
-            ClearSensitiveSession();
             return true;
         }
         catch (Exception ex) when (ex is IOException
@@ -536,7 +519,6 @@ public sealed class VaultService : IDisposable
             masterPasswordService.RewrapVaultKey(newMasterPassword, config, encryptionKey!);
             config.UpdatedAt = utcNow();
             storageService.SaveConfig(config);
-            sensitiveSessionExpiresAt = null;
             TryDeleteTrustedUnlockToken();
             SaveTrustedUnlockToken(config);
             return true;
@@ -593,7 +575,6 @@ public sealed class VaultService : IDisposable
             config.UpdatedAt = utcNow();
             storageService.SaveConfig(config);
             totpSecretBase32 = newTotpSecretBase32;
-            sensitiveSessionExpiresAt = null;
             TryDeleteTrustedUnlockToken();
             SaveTrustedUnlockToken(config);
             return true;
@@ -1058,7 +1039,7 @@ public sealed class VaultService : IDisposable
         vaultData = null;
         isVaultOpen = false;
         encryptionUsesEnvelope = false;
-        sensitiveSessionExpiresAt = null;
+        signInSessionExpiresAt = null;
     }
 
     public void Dispose()
@@ -1290,6 +1271,12 @@ public sealed class VaultService : IDisposable
         {
             throw new InvalidOperationException("The vault requires Authenticator verification before it can be opened.");
         }
+
+        if (totpSecretBase32 is null)
+            throw new UnauthorizedAccessException("A Google Authenticator secret is required to open the vault.");
+
+        if (!IsSignInSessionActive)
+            throw new InvalidOperationException("The sign-in session expired. Unlock the vault again to continue.");
     }
 
     private void ThrowIfDisposed()

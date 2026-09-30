@@ -130,14 +130,15 @@ Perform these checks against the exact qualified artifact. Record failures and u
 - **First launch:** Start with no PasswordTool vault files, create a vault, and confirm no network access is required.
 - **Existing-vault unlock:** Launch against a protected test vault at `%LocalAppData%\PasswordTool` and unlock with its Master Password.
 - **Lock/relock:** Exercise manual lock plus the applicable inactivity/session lifecycle, then unlock again and confirm sensitive state was cleared while locked.
-- **TOTP-protected action:** With application TOTP configured, verify a protected reveal/edit or backup action requires a current code and rejects an invalid code.
+- **Session authorization:** Verify Master Password + TOTP is required to unlock; reveal/copy and other vault actions do not request another code; the session ends after five hours.
+- **Manual lock:** Verify Lock keeps the app open, clears decrypted vault state, and shows the in-app Unlock vault screen.
 - **Backup verification:** Export an encrypted backup to an external test path and complete authenticated verification with the separate backup passphrase; confirm no passphrase or plaintext secrets appear in release files or logs.
 - **Security Check:** Run the local Security Check against known weak/reused/old test entries, edit through the protected workflow, and confirm the rescan updates without displaying password values.
 - **Offline launch:** Disconnect networking before launch and exercise unlock plus normal vault use. Confirm no update, telemetry, cloud, account, API, or other network prompt/dependency appears.
 - **Upgrade preserves vault data:** Install the prior approved version, create a disposable test vault, upgrade using the candidate installer, and confirm the same `%LocalAppData%\PasswordTool` vault unlocks unchanged.
 - **Uninstall preserves vault data:** Uninstall the application and confirm `%LocalAppData%\PasswordTool` and its test vault remain. Reinstall and confirm the preserved test vault still unlocks.
 
-Use disposable qualification data, never a real user vault. These scenarios validate existing behavior; Phase 5 does not change the vault format, KDF, encrypted backup/recovery, TOTP, trusted unlock, inactivity lock, sensitive-action authorization, password lifecycle, or Security Check rules.
+Use disposable qualification data, never a real user vault. These scenarios validate the qualified behavior; they do not change the vault format, KDF, encrypted backup/recovery, password lifecycle, or Security Check rules.
 
 ## Release operator checklist
 

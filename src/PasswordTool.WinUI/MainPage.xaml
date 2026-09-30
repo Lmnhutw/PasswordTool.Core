@@ -18,6 +18,7 @@
             <Setter Property="Height" Value="30" />
             <Setter Property="MinWidth" Value="30" />
             <Setter Property="MinHeight" Value="30" />
+            <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style x:Key="VaultRowSymbolStyle" TargetType="SymbolIcon">
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
@@ -127,7 +128,7 @@
                             <Image x:Name="AuthenticatorQrImage" Width="240" Height="240" AutomationProperties.Name="Authenticator QR code" />
                             <TextBlock x:Name="AuthenticatorSecretText" AutomationProperties.AutomationId="TxtAuthenticatorSetupSecret" FontFamily="Consolas" TextWrapping="Wrap" />
                             <Button HorizontalAlignment="Left" Click="CopyAuthenticatorSecretButton_Click" Content="Copy setup secret securely" />
-                            <TextBox x:Name="AuthenticatorConfirmationInput" AutomationProperties.Name="Authenticator confirmation code" Header="6-digit code" MaxLength="6" />
+                            <local:SixDigitCodeInput x:Name="AuthenticatorConfirmationInput" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Click="ExitButton_Click" Content="Cancel" />
                                 <Button AutomationProperties.AutomationId="BtnCompleteAuthenticator" Click="CompleteAuthenticatorButton_Click" Content="Finish setup" />
@@ -136,12 +137,8 @@
 
                         <StackPanel x:Name="UnlockPanel" Spacing="16" Visibility="Collapsed">
                             <FontIcon HorizontalAlignment="Left" FontSize="36" Glyph="&#xE72E;" />
-                            <TextBlock Text="Unlock PasswordTool" Style="{StaticResource PasswordToolPageTitleStyle}" />
-                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Choose an available sign-in method." TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal" Spacing="16">
-                                <RadioButton x:Name="MasterPasswordOption" Checked="LoginOption_Checked" Content="Master Password" IsChecked="True" />
-                                <RadioButton x:Name="AuthenticatorOption" Checked="LoginOption_Checked" Content="Authenticator" IsEnabled="{x:Bind ViewModel.CanUseAuthenticator, Mode=OneWay}" />
-                            </StackPanel>
+                            <TextBlock Text="Unlock vault" Style="{StaticResource PasswordToolPageTitleStyle}" />
+                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Enter your Master Password and Google Authenticator code to unlock the vault." TextWrapping="Wrap" />
                             <PasswordBox x:Name="MasterPasswordInput" AutomationProperties.AutomationId="TxtMasterPassword" Header="Master Password" AutomationProperties.Name="Master Password" KeyDown="MasterPasswordInput_KeyDown" />
                             <Button x:Name="UnlockButton" AutomationProperties.AutomationId="BtnUnlock" HorizontalAlignment="Stretch" AutomationProperties.Name="Unlock vault" Click="UnlockButton_Click" Content="Unlock" />
                         </StackPanel>
@@ -280,14 +277,15 @@
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
                                     <Grid Margin="0,8,0,4">
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="16" />
+                                            <RowDefinition Height="40" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Border Grid.Row="1" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
-                                            <ListView Margin="0,22,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
+                                            <ListView Margin="0,0,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
                                     <Grid
+                                        Loaded="VaultRow_Loaded"
                                         Padding="12,10"
                                         AutomationProperties.Name="{x:Bind Title}"
                                         ColumnSpacing="20">
@@ -350,7 +348,7 @@
                                                 </ListView.ItemTemplate>
                                             </ListView>
                                         </Border>
-                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Canvas.ZIndex="1" Padding="12,6" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
+                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Canvas.ZIndex="1" Padding="12,10" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6,6,0,0">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
                                                 <TextBlock MaxWidth="280" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
@@ -404,14 +402,14 @@
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
                                     <Grid Margin="0,8,0,4">
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="16" />
+                                            <RowDefinition Height="40" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Border Grid.Row="1" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
-                                            <ListView Margin="0,22,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
+                                            <ListView Margin="0,0,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
-                                    <Grid Padding="12,10" AutomationProperties.Name="{x:Bind Title}" ColumnSpacing="20">
+                                    <Grid Loaded="VaultRow_Loaded" Padding="12,10" AutomationProperties.Name="{x:Bind Title}" ColumnSpacing="20">
                                         <Grid.Resources>
                                             <Style BasedOn="{StaticResource VaultRowIconButtonStyle}" TargetType="Button" />
                                             <Style BasedOn="{StaticResource VaultRowSymbolStyle}" TargetType="SymbolIcon" />
@@ -474,7 +472,7 @@
                                                 </ListView.ItemTemplate>
                                             </ListView>
                                         </Border>
-                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" Canvas.ZIndex="1" HorizontalAlignment="Left" Padding="12,6" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
+                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" Canvas.ZIndex="1" HorizontalAlignment="Left" Padding="12,10" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6,6,0,0">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
                                                 <TextBlock MaxWidth="360" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
@@ -715,11 +713,8 @@
                         <Border Style="{StaticResource PasswordToolCardStyle}">
                             <StackPanel Spacing="12">
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Login and timeouts" />
-                                <ComboBox Header="Login mode" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Settings.LoginModes}" SelectedItem="{x:Bind ViewModel.Settings.SelectedLoginMode, Mode=TwoWay}" />
                                 <NumberBox Header="Inactivity lock timeout (minutes)" Maximum="120" Minimum="1" SpinButtonPlacementMode="Inline" Value="{x:Bind ViewModel.Settings.InactivityTimeoutMinutes, Mode=TwoWay}" />
-                                <ComboBox Header="Vault open duration" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Settings.VaultOpenDurations}" SelectedItem="{x:Bind ViewModel.Settings.SelectedVaultOpenDuration, Mode=TwoWay}" />
-                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Locks after this time from unlock, even while you are active. The inactivity limit can lock it sooner." TextWrapping="Wrap" />
-                                <NumberBox Header="Sensitive-action authorization (minutes)" Maximum="30" Minimum="1" SpinButtonPlacementMode="Inline" Value="{x:Bind ViewModel.Settings.SensitiveActionTimeoutMinutes, Mode=TwoWay}" />
+                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="The vault locks after this idle period. Your sign-in session expires after 5 hours." TextWrapping="Wrap" />
                                 <PasswordBox x:Name="SettingsMasterPassword" AutomationProperties.Name="Master Password for settings" Header="Current Master Password" />
                                 <Button HorizontalAlignment="Left" Click="SaveSettingsButton_Click" Content="Save security settings" />
                                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ViewModel.Settings.BackupHealthText, Mode=OneWay}" TextWrapping="Wrap" />
@@ -747,7 +742,7 @@
                                 <Image x:Name="SettingsAuthenticatorQr" Width="220" Height="220" Visibility="Collapsed" />
                                 <TextBlock x:Name="SettingsAuthenticatorSecret" FontFamily="Consolas" TextWrapping="Wrap" />
                                 <PasswordBox x:Name="AuthenticatorResetMasterPassword" AutomationProperties.Name="Master Password for Authenticator reset" Header="Current Master Password" />
-                                <TextBox x:Name="AuthenticatorResetCode" AutomationProperties.Name="New Authenticator confirmation code" Header="New 6-digit code" MaxLength="6" />
+                            <local:SixDigitCodeInput x:Name="AuthenticatorResetCode" />
                                 <Button HorizontalAlignment="Left" Click="ResetAuthenticatorButton_Click" Content="Reset Authenticator" />
                             </StackPanel>
                         </Border>

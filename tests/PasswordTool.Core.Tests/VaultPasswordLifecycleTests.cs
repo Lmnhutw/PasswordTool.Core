@@ -33,6 +33,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
 
         using var reopened = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp, utcNow: () => now);
         Assert.True(reopened.UnlockWithMasterPassword(masterPassword).Success);
+        Assert.True(reopened.VerifyTotpForSession(code));
         Assert.Null(Assert.Single(reopened.GetItems()).PasswordChangedAt);
     }
 
@@ -103,8 +104,11 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         var storage = new VaultStorageService(tempDirectory);
         var encryption = new EncryptionService();
         var master = new MasterPasswordService(encryption);
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        var code = ComputeTotp(secret);
         const string masterPassword = "correct horse battery staple";
-        var config = master.CreateConfig(masterPassword, string.Empty);
+        var config = master.CreateConfig(masterPassword, secret);
         var key = master.DeriveKey(masterPassword, config);
         var historyDate = now.AddDays(-400);
         var updatedDate = now.AddDays(-500);
@@ -142,8 +146,9 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
             CryptographicOperations.ZeroMemory(key);
         }
 
-        using var vault = new VaultService(storage, encryption, new TotpService(), utcNow: () => now);
+        using var vault = new VaultService(storage, encryption, totp, utcNow: () => now);
         Assert.True(vault.TryUnlockMasterPassword(masterPassword, out var error), error);
+        Assert.True(vault.VerifyTotpForSession(code));
         var normalizedHistoryItem = vault.GetItems().Single(item => item.Id == historyItemId);
         Assert.Equal(historyDate, normalizedHistoryItem.PasswordChangedAt);
         var findings = vault.GetSecurityFindings(string.Empty);
@@ -176,6 +181,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
 
         using var reopened = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
         Assert.True(reopened.TryUnlockMasterPassword("correct horse battery staple", out var error), error);
+        Assert.True(reopened.VerifyTotpForSession(code));
         Assert.All(reopened.GetItems(), item => Assert.Equal(now, item.PasswordChangedAt));
     }
 

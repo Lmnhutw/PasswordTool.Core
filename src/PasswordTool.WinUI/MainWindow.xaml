@@ -16,7 +16,7 @@
 
         <TitleBar x:Name="AppTitleBar" Title="PasswordTool">
             <TitleBar.IconSource>
-                <BitmapIconSource UriSource="ms-appx:///Assets/StoreLogo.png" />
+                <ImageIconSource ImageSource="ms-appx:///Assets/StoreLogo.png" />
             </TitleBar.IconSource>
         </TitleBar>
 

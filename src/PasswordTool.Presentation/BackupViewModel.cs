@@ -34,11 +34,9 @@ public sealed partial class BackupViewModel(
     {
         var path = await filePicker.PickSavePathAsync($"PasswordTool-backup-{DateTime.Now:yyyyMMdd-HHmm}.json");
         if (path is null) return;
-        var code = await RequestSensitiveCodeAsync("Export backup", "Confirm before exporting encrypted vault items.");
-        if (code is null) return;
         await RunAsync(async () =>
         {
-            await flow.CreateExternalBackupAsync(path, passphrase, code);
+            await flow.CreateExternalBackupAsync(path, passphrase, string.Empty);
             ShowStatus("Encrypted backup created and recorded in backup health.");
         });
     }
@@ -60,11 +58,9 @@ public sealed partial class BackupViewModel(
     {
         var path = await filePicker.PickOpenPathAsync();
         if (path is null) return;
-        var code = await RequestSensitiveCodeAsync("Import backup", "Confirm before inspecting an encrypted backup for import.");
-        if (code is null) return;
         await RunAsync(async () =>
         {
-            var plan = await flow.PreviewBackupImportAsync(path, passphrase, code);
+            var plan = await flow.PreviewBackupImportAsync(path, passphrase, string.Empty);
             SelectedBackupPath = path;
             Summary = $"{plan.NewItemCount:N0} new · {plan.DuplicateCount:N0} duplicate · {plan.ConflictCount:N0} conflict";
             CanImportBackup = plan.NewItemCount > 0;
@@ -75,11 +71,9 @@ public sealed partial class BackupViewModel(
     public async Task ImportBackupAsync(string passphrase)
     {
         if (!CanImportBackup) return;
-        var code = await RequestSensitiveCodeAsync("Import backup", "Confirm before adding the previewed backup items.");
-        if (code is null) return;
         await RunAsync(async () =>
         {
-            var count = await flow.ImportBackupAsync(SelectedBackupPath, passphrase, code);
+            var count = await flow.ImportBackupAsync(SelectedBackupPath, passphrase, string.Empty);
             await vault.RefreshAsync();
             CanImportBackup = false;
             ShowStatus($"Imported {count:N0} new item{(count == 1 ? string.Empty : "s")}.");
@@ -90,11 +84,9 @@ public sealed partial class BackupViewModel(
     {
         var path = await filePicker.PickOpenPathAsync();
         if (path is null) return;
-        var code = await RequestSensitiveCodeAsync("Import CSV", "Confirm before inspecting plaintext credential data.");
-        if (code is null) return;
         await RunAsync(async () =>
         {
-            var plan = await flow.PreviewCsvImportAsync(path, code);
+            var plan = await flow.PreviewCsvImportAsync(path, string.Empty);
             SelectedCsvPath = path;
             Summary = $"{plan.NewItemCount:N0} new · {plan.DuplicateCount:N0} duplicate";
             CanImportCsv = plan.NewItemCount > 0;
@@ -105,11 +97,9 @@ public sealed partial class BackupViewModel(
     public async Task ImportCsvAsync()
     {
         if (!CanImportCsv) return;
-        var code = await RequestSensitiveCodeAsync("Import CSV", "Confirm before adding the previewed CSV items.");
-        if (code is null) return;
         await RunAsync(async () =>
         {
-            var count = await flow.ImportCsvAsync(SelectedCsvPath, code);
+            var count = await flow.ImportCsvAsync(SelectedCsvPath, string.Empty);
             await vault.RefreshAsync();
             CanImportCsv = false;
             ShowStatus($"Imported {count:N0} new item{(count == 1 ? string.Empty : "s")}.");
@@ -123,12 +113,6 @@ public sealed partial class BackupViewModel(
         var result = await flow.RestoreSnapshotAsync(SelectedSnapshot.Id, masterPassword);
         ShowStatus(result.Success ? "Snapshot restored. Unlock the restored vault to continue." : result.Message);
         return result.Success;
-    }
-
-    private async Task<string?> RequestSensitiveCodeAsync(string title, string message)
-    {
-        if (await flow.IsSensitiveSessionActiveAsync()) return string.Empty;
-        return await dialogs.PromptSensitiveTotpAsync(title, message);
     }
 
     private async Task RunAsync(Func<Task> action)

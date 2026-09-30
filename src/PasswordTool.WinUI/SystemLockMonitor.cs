@@ -10,7 +10,7 @@ internal sealed class SystemLockMonitor : ISystemLockMonitor, IDisposable
     private readonly Timer timer;
     private TimeSpan inactivityTimeout;
     private TimeSpan vaultOpenDuration;
-    private long openedAtTimestamp;
+    private long sessionStartedAtTimestamp;
     private int lockRaised;
     private bool monitoring;
     private bool disposed;
@@ -29,7 +29,7 @@ internal sealed class SystemLockMonitor : ISystemLockMonitor, IDisposable
         Interlocked.Exchange(ref lockRaised, 0);
         if (!monitoring)
         {
-            openedAtTimestamp = Stopwatch.GetTimestamp();
+            sessionStartedAtTimestamp = Stopwatch.GetTimestamp();
             SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
             SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
             monitoring = true;
@@ -50,7 +50,7 @@ internal sealed class SystemLockMonitor : ISystemLockMonitor, IDisposable
 
     private void CheckIdle(object? state)
     {
-        if (Stopwatch.GetElapsedTime(openedAtTimestamp) >= vaultOpenDuration || GetSystemIdleTime() >= inactivityTimeout)
+        if (Stopwatch.GetElapsedTime(sessionStartedAtTimestamp) >= vaultOpenDuration || GetSystemIdleTime() >= inactivityTimeout)
             RequestLock();
     }
 

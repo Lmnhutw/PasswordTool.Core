@@ -54,10 +54,8 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] public partial AppRoute CurrentRoute { get; set; } = AppRoute.Vault;
     [ObservableProperty] public partial string StatusMessage { get; set; } = string.Empty;
     [ObservableProperty] public partial bool IsStatusOpen { get; set; }
-    [ObservableProperty] public partial TimeSpan InactivityTimeout { get; set; } = TimeSpan.FromMinutes(10);
-    [ObservableProperty] public partial TimeSpan VaultOpenDuration { get; set; } = TimeSpan.FromMinutes(10);
-    [ObservableProperty] public partial bool CanUseAuthenticator { get; set; }
-    [ObservableProperty] public partial bool UseAuthenticator { get; set; }
+    [ObservableProperty] public partial TimeSpan InactivityTimeout { get; set; } = TimeSpan.FromMinutes(1);
+    [ObservableProperty] public partial TimeSpan VaultOpenDuration { get; set; } = TimeSpan.FromHours(5);
     [ObservableProperty] public partial bool IsRecovering { get; set; }
     [ObservableProperty] public partial string RecoveryPath { get; set; } = string.Empty;
     [ObservableProperty] public partial string RecoverySummary { get; set; } = string.Empty;
@@ -72,37 +70,6 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         IsStatusOpen = false;
         var result = await flow.UnlockAsync(masterPassword, totpCode);
-        FlowState = flow.FlowState;
-        if (!result.Success)
-        {
-            StatusMessage = result.Message;
-            IsStatusOpen = true;
-            return;
-        }
-
-        await CompleteUnlockAsync(result);
-    }
-
-    public async Task LoadAuthenticationOptionsAsync()
-    {
-        if (FlowState != AppFlowState.Unlock) return;
-        try
-        {
-            var options = await flow.GetUnlockOptionsAsync();
-            CanUseAuthenticator = options.CanUseAuthenticator;
-            UseAuthenticator = options.CanUseAuthenticator
-                && options.PreferredLoginMode == VaultLoginMode.GoogleAuthenticatorCode;
-        }
-        catch (Exception exception)
-        {
-            ShowMappedError(exception);
-        }
-    }
-
-    public async Task UnlockWithAuthenticatorAsync(string code)
-    {
-        IsStatusOpen = false;
-        var result = await flow.UnlockWithAuthenticatorAsync(code);
         FlowState = flow.FlowState;
         if (!result.Success)
         {
@@ -246,13 +213,11 @@ public sealed partial class ShellViewModel : ObservableObject
         return await GetItemForEditingAsync(selected.Id);
     }
 
-    public async Task<VaultItem?> GetItemForEditingAsync(Guid itemId, string title = "Edit item", string message = "Confirm before loading secret fields for editing.")
+    public async Task<VaultItem?> GetItemForEditingAsync(Guid itemId)
     {
-        var code = await RequestSensitiveCodeAsync(title, message);
-        if (code is null) return null;
         try
         {
-            return await flow.GetItemForEditingAsync(itemId, code);
+            return await flow.GetItemForEditingAsync(itemId, string.Empty);
         }
         catch (Exception exception)
         {
@@ -334,11 +299,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task RevealPasswordAsync(Guid itemId)
     {
-        var code = await RequestSensitiveCodeAsync("View password", "Confirm before revealing this password.");
-        if (code is null) return;
         try
         {
-            await dialogs.ShowSecretAsync("Password", await flow.GetPasswordAsync(itemId, code), multiline: false);
+            await dialogs.ShowSecretAsync("Password", await flow.GetPasswordAsync(itemId, string.Empty), multiline: false);
         }
         catch (Exception exception)
         {
@@ -348,11 +311,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task RevealRecoveryCodesAsync(Guid itemId)
     {
-        var code = await RequestSensitiveCodeAsync("View recovery codes", "Confirm before revealing recovery codes.");
-        if (code is null) return;
         try
         {
-            var codes = await flow.GetRecoveryCodesAsync(itemId, code);
+            var codes = await flow.GetRecoveryCodesAsync(itemId, string.Empty);
             await dialogs.ShowSecretAsync("Recovery codes", string.Join(Environment.NewLine, codes), multiline: true);
         }
         catch (Exception exception)
@@ -369,7 +330,7 @@ public sealed partial class ShellViewModel : ObservableObject
         var notes = item.Notes;
         if (item.HideNotes)
         {
-            var fullItem = await GetItemForEditingAsync(itemId, "View notes", "Confirm before revealing hidden notes.");
+            var fullItem = await GetItemForEditingAsync(itemId);
             if (fullItem is null) return;
             notes = fullItem.Notes;
         }
@@ -386,11 +347,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task CopyPasswordAsync(Guid itemId)
     {
-        var code = await RequestSensitiveCodeAsync("Copy password", "Confirm before copying this password.");
-        if (code is null) return;
         try
         {
-            await clipboard.CopyAsync(await flow.GetPasswordAsync(itemId, code));
+            await clipboard.CopyAsync(await flow.GetPasswordAsync(itemId, string.Empty));
         }
         catch (Exception exception)
         {
@@ -401,11 +360,9 @@ public sealed partial class ShellViewModel : ObservableObject
     public async Task ViewPasswordHistoryAsync(Guid itemId)
     {
         if (Vault.Items.All(item => item.Id != itemId || !item.HasPassword)) return;
-        var code = await RequestSensitiveCodeAsync("Password history", "Confirm before revealing previous passwords.");
-        if (code is null) return;
         try
         {
-            var history = await flow.GetPasswordHistoryAsync(itemId, code);
+            var history = await flow.GetPasswordHistoryAsync(itemId, string.Empty);
             var text = history.Count == 0
                 ? "No previous passwords are stored for this item."
                 : string.Join(Environment.NewLine + Environment.NewLine, history.Select(entry =>
@@ -445,9 +402,4 @@ public sealed partial class ShellViewModel : ObservableObject
         $"{inspection.Format} v{inspection.Version} · {inspection.TotalItemCount:N0} items · " +
         $"{inspection.ActiveItemCount:N0} active · {inspection.TrashItemCount:N0} in Trash";
 
-    private async Task<string?> RequestSensitiveCodeAsync(string title, string message)
-    {
-        if (await flow.IsSensitiveSessionActiveAsync()) return string.Empty;
-        return await dialogs.PromptSensitiveTotpAsync(title, message);
-    }
 }

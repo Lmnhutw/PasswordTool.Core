@@ -60,6 +60,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         vault.ClearSession();
         Assert.False(vault.TryUnlockMasterPassword("correct horse battery staple", out _));
         Assert.True(vault.TryUnlockMasterPassword("a completely different master password", out error), error);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         Assert.Single(vault.GetItems());
         Assert.DoesNotContain("account secret", File.ReadAllText(storage.VaultPath));
     }
@@ -101,6 +102,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
 
         using var vault = new VaultService(storage, encryption, totp, utcNow: () => now);
         Assert.True(vault.TryUnlockMasterPassword(password, out var unlockError), unlockError);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         Assert.False(vault.NeedsKdfUpgrade); // Automatic legacy migration also upgrades the KDF.
         Assert.True(vault.TryUpgradeKdf(password, out var upgradeError), upgradeError);
 
@@ -166,6 +168,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         Assert.True(vault.TryRestoreSnapshot(snapshot.Id, master, out var error), error);
         Assert.Throws<InvalidOperationException>(() => vault.GetItems());
         Assert.True(vault.TryUnlockMasterPassword(master, out error), error);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         var item = Assert.Single(vault.GetItems());
         Assert.Equal("First", item.Title);
     }

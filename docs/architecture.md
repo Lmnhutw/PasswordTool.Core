@@ -22,14 +22,10 @@ First launch
   -> Argon2id derives a KEK from the Master Password
   -> KEK wraps the DEK with AES-256-GCM
   -> DEK encrypts the vault and PasswordTool Authenticator secret with purpose-bound AAD
-  -> trusted token separately DPAPI-protects the Authenticator secret and DEK
 
 Master Password unlock
-  derive KEK -> unwrap DEK -> decrypt config secret and vault -> refresh trusted token
-
-Authenticator trusted unlock
-  validate token -> DPAPI-open Authenticator secret -> verify TOTP
-  -> only then DPAPI-open DEK -> decrypt vault
+  derive KEK -> unwrap DEK -> decrypt config secret and vault
+  -> verify 6-digit TOTP -> begin a five-hour in-memory sign-in session
 ```
 
 A Master Password is always the recovery path for an unexpired-token failure. There is no recovery/reset/backdoor if the Master Password, authenticator secret, and usable encrypted backup are lost.
@@ -41,7 +37,7 @@ Legacy v1/v2 vaults remain readable and are atomically migrated after the curren
 | --- | --- | --- |
 | `%LocalAppData%\PasswordTool\.config` | v3 Master key slot, login/security settings, encrypted Authenticator secret, backup-health timestamps | Argon2id-derived KEK wraps the random DEK; the Authenticator secret is encrypted by the DEK with purpose-bound AAD. |
 | `%LocalAppData%\PasswordTool\.storage` | Vault items | Entire JSON payload is AES-256-GCM encrypted. |
-| `%LocalAppData%\PasswordTool\.trusted-unlock` | Optional one-day trusted-device token | Separate DPAPI-CurrentUser blobs protect the Authenticator secret and DEK; both are tied to a config fingerprint. |
+| `%LocalAppData%\PasswordTool\.trusted-unlock` | Legacy trusted-unlock token file | Kept for compatibility with existing installations; the desktop UI no longer offers Authenticator-only sign-in. |
 | `%LocalAppData%\PasswordTool\.snapshots` | Up to five prior config/vault pairs | Config and vault remain in their normal encrypted-at-rest formats. |
 
 Hidden/System file attributes are only obfuscation. Treat an incomplete `.config`/`.storage` pair as an error; never silently recreate or overwrite it.
@@ -53,8 +49,8 @@ Config and vault writes are one logical state transition: stage and read back bo
 - A password item may contain one normalized Base32 website TOTP secret. A recovery-code item may not contain password or TOTP data.
 - Favorites, folders, and tags live inside the encrypted vault and backup payloads. List clones expose only whether a TOTP secret exists, never the secret itself.
 - `Title` is required. Core validates item shape before add/update/export/import.
-- TOTP is required to reveal a password or recovery-code list, obtain an item for editing, and export/import backups when configured. It is an application authorization gate and never derives, wraps, encrypts, or decrypts a vault key.
-- A successful application-TOTP check authorizes sensitive actions for the configured 1–30 minute window (five minutes by default). The authorization is in-memory only and is cleared with the vault session or whenever security settings change.
+- Opening the vault requires both the Master Password and PasswordTool Authenticator TOTP. TOTP verifies the session; it never derives, wraps, encrypts, or decrypts a vault key.
+- A successful sign-in authorizes vault actions for at most five hours. No second TOTP prompt appears during that session. The authorization is in-memory only and is cleared when the vault locks.
 - Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
 - Inspection authenticates and validates the complete backup but returns only format/version, creation time, and item/type/active/Trash counts. It never returns the decrypted payload or secret fields.
 - New-machine recovery is allowed only when neither `.config` nor `.storage` exists. Core validates the backup, new Master Password, and new Authenticator confirmation before atomically committing a fresh random DEK, Argon2id Master key slot, and recovered encrypted vault. It never imports the old config, vault key, trusted token, or application Authenticator secret.
@@ -67,9 +63,9 @@ Config and vault writes are one logical state transition: stage and read back bo
 - UpdatedAt is general item metadata. PasswordChangedAt is nullable/version-tolerant lifecycle metadata for active password items only: new/imported passwords and password changes set it from the logical mutation timestamp; non-password edits, Trash, config changes, and key/KDF rewrites do not. Recovery-code conversion clears it and password history. Older payloads resolve an effective date from newest valid history, UpdatedAt, then CreatedAt; dates after the current UTC operation time are invalid and cannot postpone an old-password finding. Unlock normalizes this in memory without saving solely because the vault opened.
 - Local Security Check scans active password values in memory only, using exact ordinal reuse comparison and the existing strength estimator. Findings are secret-free and ordered by type, title, then ID. Passwords at least 365 days old (including the exact boundary) are old. WinUI receives findings and routes only the selected item ID through the protected editor workflow before rerunning the scan.
 - Local Security Check runs only against decrypted in-memory data and returns item metadata plus finding type, never a password value.
-- The desktop process enforces one instance and locks after the configured 1–120 minute inactivity window (10 minutes by default).
-- WinUI subscribes only while the vault is unlocked to Windows session-switch and power-mode events. Session lock, console/remote disconnect, suspend, and resume lock the vault; the lock path clears decrypted items, the vault key, the Authenticator secret, sensitive-action authorization, navigation history, editor fields, and PasswordTool-owned clipboard content before showing the unlock flow again.
-- Security timeout and sign-in-mode changes are one Master-Password-authorized config update. Persisted timeout values are validated in Core before use; older configs inherit the secure defaults through version-tolerant property initialization.
+- The desktop process enforces one instance, locks after the configured 1–120 minute inactivity window (one minute by default), and ends the sign-in session after five hours.
+- WinUI subscribes only while the vault is unlocked to Windows session-switch and power-mode events. Session lock, console/remote disconnect, suspend, and resume lock the vault; the app remains open and shows its Unlock vault screen. Lock clears decrypted items, the vault key, the Authenticator secret, session authorization, navigation history, editor fields, and PasswordTool-owned clipboard content.
+- Inactivity timeout changes require the Master Password. The five-hour session limit and Master Password + TOTP sign-in mode are fixed. Persisted timeout values are validated in Core before use; older configs inherit defaults through version-tolerant property initialization.
 
 ## Password hashing
 

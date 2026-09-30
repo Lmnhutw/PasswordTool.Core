@@ -67,16 +67,18 @@ public sealed class VaultServiceTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => reopenedVault.GetItems());
         Assert.True(reopenedVault.TryUnlockWithGoogleAuthenticator(code, out _));
         Assert.Single(reopenedVault.GetItems());
-        Assert.Throws<UnauthorizedAccessException>(() => reopenedVault.GetPassword(addedItem.Id, invalidCode));
+        Assert.Equal("super-secret-value", reopenedVault.GetPassword(addedItem.Id, invalidCode));
         Assert.Equal("super-secret-value", reopenedVault.GetPassword(addedItem.Id, code));
 
         reopenedVault.ClearSession();
         Assert.False(reopenedVault.TryUnlockMasterPassword("wrong master password", out _));
         Assert.Throws<InvalidOperationException>(() => reopenedVault.VerifyTotpForSession(code));
         Assert.True(reopenedVault.TryUnlockMasterPassword("correct horse battery staple", out _));
+        Assert.Throws<InvalidOperationException>(() => reopenedVault.GetItems());
+        Assert.True(reopenedVault.VerifyTotpForSession(code));
         Assert.True(reopenedVault.IsGoogleAuthenticatorConfigured);
         Assert.Single(reopenedVault.GetItems());
-        Assert.Throws<UnauthorizedAccessException>(() => reopenedVault.GetPassword(addedItem.Id, invalidCode));
+        Assert.Equal("super-secret-value", reopenedVault.GetPassword(addedItem.Id, invalidCode));
         Assert.Equal("super-secret-value", reopenedVault.GetPassword(addedItem.Id, code));
     }
 
@@ -115,7 +117,7 @@ public sealed class VaultServiceTests : IDisposable
     }
 
     [Fact]
-    public void Legacy_vault_without_totp_secret_unlocks_with_master_password_only()
+    public void Legacy_vault_without_totp_secret_cannot_complete_the_required_login()
     {
         var storage = new VaultStorageService(tempDirectory);
         var encryption = new EncryptionService();
@@ -161,10 +163,8 @@ public sealed class VaultServiceTests : IDisposable
         Assert.True(vaultService.TryUnlockMasterPassword(masterPassword, out _));
         Assert.False(vaultService.IsGoogleAuthenticatorConfigured);
         Assert.False(vaultService.CanUnlockWithGoogleAuthenticatorToken);
-
-        var item = Assert.Single(vaultService.GetItems());
-        Assert.Equal(VaultItemType.Password, item.Type);
-        Assert.Equal("legacy-secret", vaultService.GetPassword(item.Id, string.Empty));
+        Assert.False(vaultService.VerifyTotpForSession("000000"));
+        Assert.Throws<UnauthorizedAccessException>(() => vaultService.GetItems());
     }
 
     [Fact]
@@ -230,8 +230,9 @@ public sealed class VaultServiceTests : IDisposable
         Assert.Equal(VaultLoginMode.Hybrid, vaultService.LoginMode);
         Assert.False(vaultService.TrySetLoginMode("incorrect password", VaultLoginMode.GoogleAuthenticatorCode, out _));
         Assert.Equal(VaultLoginMode.Hybrid, vaultService.LoginMode);
-        Assert.True(vaultService.TrySetLoginMode("correct horse battery staple", VaultLoginMode.GoogleAuthenticatorCode, out _));
-        Assert.Equal(VaultLoginMode.GoogleAuthenticatorCode, vaultService.LoginMode);
+        Assert.False(vaultService.TrySetLoginMode("correct horse battery staple", VaultLoginMode.GoogleAuthenticatorCode, out var modeError));
+        Assert.Contains("both", modeError, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(VaultLoginMode.Hybrid, vaultService.LoginMode);
     }
 
     [Fact]
@@ -279,7 +280,7 @@ public sealed class VaultServiceTests : IDisposable
     }
 
     [Fact]
-    public void Successful_sensitive_totp_verification_opens_a_five_minute_session()
+    public void Successful_login_authorizes_sensitive_actions_for_five_hours()
     {
         var now = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
         var storage = new VaultStorageService(tempDirectory);
@@ -289,15 +290,20 @@ public sealed class VaultServiceTests : IDisposable
         using var vault = new VaultService(storage, new EncryptionService(), totpService, utcNow: () => now);
         vault.InitializeNewVault("correct horse battery staple", secret, code);
         var item = vault.AddItem(new VaultItem { Title = "Email", Password = "secret" });
+        vault.ClearSession();
+        Assert.True(vault.UnlockWithMasterPassword("correct horse battery staple").Success);
+        Assert.False(vault.IsSignInSessionActive);
+        Assert.True(vault.VerifyTotpForSession(code));
 
-        Assert.False(vault.IsSensitiveSessionActive);
+        Assert.True(vault.IsSignInSessionActive);
         Assert.True(vault.VerifyTotpForSensitiveAction(code));
-        Assert.True(vault.IsSensitiveSessionActive);
+        Assert.True(vault.IsSignInSessionActive);
         Assert.Equal("secret", vault.GetPassword(item.Id, string.Empty));
 
-        now = now.AddMinutes(5).AddSeconds(1);
-        Assert.False(vault.IsSensitiveSessionActive);
-        Assert.Throws<UnauthorizedAccessException>(() => vault.GetPassword(item.Id, "000000"));
+        now = now.AddHours(5).AddSeconds(1);
+        Assert.False(vault.IsSignInSessionActive);
+        Assert.Throws<InvalidOperationException>(() => vault.VerifyTotpForSensitiveAction(code));
+        Assert.Throws<InvalidOperationException>(() => vault.GetPassword(item.Id, string.Empty));
     }
 
     [Fact]
@@ -312,7 +318,7 @@ public sealed class VaultServiceTests : IDisposable
         vault.InitializeNewVault("correct horse battery staple", secret, code);
 
         Assert.Equal(
-            new VaultSecuritySettings(10, 5),
+            new VaultSecuritySettings(1, 5, 300),
             vault.SecuritySettings);
         Assert.False(vault.TryUpdateSettings(
             "incorrect master password",
@@ -320,21 +326,24 @@ public sealed class VaultServiceTests : IDisposable
             new VaultSecuritySettings(20, 2),
             out var wrongPasswordError));
         Assert.Contains("incorrect", wrongPasswordError, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(1, 5, 300), vault.SecuritySettings);
 
         Assert.True(vault.VerifyTotpForSensitiveAction(code));
-        Assert.True(vault.IsSensitiveSessionActive);
+        Assert.True(vault.IsSignInSessionActive);
         Assert.True(vault.TryUpdateSettings(
             "correct horse battery staple",
             VaultLoginMode.Hybrid,
             new VaultSecuritySettings(20, 2, 60),
             out var updateError), updateError);
-        Assert.False(vault.IsSensitiveSessionActive);
+        Assert.True(vault.IsSignInSessionActive);
         Assert.Equal(new VaultSecuritySettings(20, 2, 60), vault.SecuritySettings);
 
         Assert.True(vault.VerifyTotpForSensitiveAction(code));
         now = now.AddMinutes(2).AddSeconds(1);
-        Assert.False(vault.IsSensitiveSessionActive);
+        Assert.True(vault.IsSignInSessionActive);
+        now = now.AddHours(5);
+        Assert.False(vault.IsSignInSessionActive);
+        Assert.Throws<InvalidOperationException>(() => vault.VerifyTotpForSensitiveAction(code));
 
         var persisted = storage.LoadConfig();
         Assert.Equal(20, persisted.InactivityLockTimeoutMinutes);
@@ -345,11 +354,10 @@ public sealed class VaultServiceTests : IDisposable
             Assert.Equal(new VaultSecuritySettings(20, 2, 60), reopened.SecuritySettings);
         }
 
-        Assert.True(vault.TryChangeMasterPassword(
+        Assert.Throws<InvalidOperationException>(() => vault.TryChangeMasterPassword(
             "correct horse battery staple",
             "a different secure master password",
-            out var changePasswordError), changePasswordError);
-        Assert.Equal(new VaultSecuritySettings(20, 2, 60), vault.SecuritySettings);
+            out _));
     }
 
     [Fact]
@@ -380,7 +388,7 @@ public sealed class VaultServiceTests : IDisposable
             new VaultSecuritySettings(10, 5, 15),
             out var durationError));
         Assert.Contains("vault open duration", durationError, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(1, 5, 300), vault.SecuritySettings);
     }
 
     [Fact]
@@ -393,7 +401,7 @@ public sealed class VaultServiceTests : IDisposable
         var storage = new VaultStorageService(tempDirectory);
         using var vault = new VaultService(storage, new EncryptionService(), new TotpService());
 
-        Assert.Equal(new VaultSecuritySettings(10, 5), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(1, 5, 300), vault.SecuritySettings);
     }
 
     [Fact]

@@ -11,9 +11,9 @@ For individuals who want to keep personal credentials, website TOTP secrets, and
 ## Experience principles
 
 - **Calm and minimal:** prioritize the vault task over decorative dashboards or security theatrics.
-- **Explicit security state:** explain when a Master Password, TOTP code, trusted-device token, or backup passphrase is required and why.
-- **Lifecycle-aware locking:** clear the decrypted vault session when Windows locks, disconnects, suspends, or resumes; make inactivity and sensitive-action durations explicit and bounded.
-- **Deliberate sensitive actions:** require confirmation for sign-in preference changes, revealing secrets, and backup export/import.
+- **Explicit security state:** explain the required Master Password + TOTP sign-in and when a backup passphrase is required.
+- **Lifecycle-aware locking:** lock the vault after one minute of inactivity by default, on Windows lock/disconnect/suspend/resume, and after a five-hour sign-in session.
+- **Low-friction actions:** do not ask for TOTP again for ordinary vault actions during the active sign-in session.
 - **Recoverable without an account:** make encrypted external backup creation, verification, and first-launch recovery understandable without implying that local snapshots protect against disk loss.
 - **Practical daily use:** make search, password generation, short-lived copy actions, and common CSV migration easy without adding an online service.
 - **Actionable local review:** Security Check findings must remain secret-free, distinguish general item edits from password-age changes, and route remediation through the existing protected editor.
@@ -22,9 +22,9 @@ For individuals who want to keep personal credentials, website TOTP secrets, and
 
 ## Security posture in the interface
 
-The interface should help users understand that the Master Password cannot be recovered; that Google Authenticator depends on a one-day local trusted token; and that backup passphrases are separate from the Master Password. New-machine recovery authenticates an encrypted backup, then creates a new Master Password and a new PasswordTool Authenticator; the backup never carries the old application Authenticator configuration or trusted token. Internal snapshots stay on the same disk and must not be presented as disaster-recovery protection. Avoid claims that clipboard blocking, hidden files, or a TOTP code alone make data safe from a compromised Windows session. TOTP is an application authentication gate: it never derives, wraps, encrypts, or decrypts the vault key, and same-user malware remains inside the DPAPI trust boundary.
+The interface should help users understand that the Master Password cannot be recovered, that opening the vault requires Master Password + Google Authenticator, and that backup passphrases are separate from the Master Password. New-machine recovery authenticates an encrypted backup, then creates a new Master Password and a new PasswordTool Authenticator. Internal snapshots stay on the same disk and must not be presented as disaster-recovery protection. Avoid claims that clipboard clearing, hidden files, or TOTP make data safe from malware in an unlocked Windows session.
 
-Security timeout changes require the current Master Password. The interface may offer 1–120 minutes for inactivity locking and 1–30 minutes for sensitive-action authorization, defaulting to 10 and 5 minutes respectively. It must not offer a “never lock” option.
+Security timeout changes require the current Master Password. Inactivity locking defaults to one minute and may be configured from 1–120 minutes. The sign-in session has a fixed five-hour maximum. Do not offer a “never lock” option or a separate sensitive-action TOTP timeout.
 
 ## Intentional constraints
 

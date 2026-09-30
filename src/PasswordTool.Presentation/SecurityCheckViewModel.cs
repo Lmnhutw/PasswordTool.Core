@@ -6,7 +6,6 @@ namespace PasswordTool.Presentation;
 
 public sealed partial class SecurityCheckViewModel(
     AppFlowCoordinator flow,
-    IUserDialogService dialogs,
     IUserErrorMapper errorMapper) : ObservableObject
 {
     public ObservableCollection<VaultSecurityFinding> Findings { get; } = [];
@@ -19,13 +18,11 @@ public sealed partial class SecurityCheckViewModel(
 
     public async Task RunAsync()
     {
-        var code = await RequestSensitiveCodeAsync();
-        if (code is null) return;
         IsBusy = true;
         IsErrorOpen = false;
         try
         {
-            var findings = await flow.GetSecurityFindingsAsync(code);
+            var findings = await flow.GetSecurityFindingsAsync(string.Empty);
             Findings.Clear();
             foreach (var finding in findings) Findings.Add(finding);
             var affected = findings.Select(finding => finding.ItemId).Distinct().Count();
@@ -44,9 +41,4 @@ public sealed partial class SecurityCheckViewModel(
         }
     }
 
-    private async Task<string?> RequestSensitiveCodeAsync()
-    {
-        if (await flow.IsSensitiveSessionActiveAsync()) return string.Empty;
-        return await dialogs.PromptSensitiveTotpAsync("Run Security Check", "Confirm before scanning decrypted password values in memory.");
-    }
 }

@@ -25,11 +25,11 @@ internal sealed class NavigationDialogService(ISensitiveClipboardService clipboa
         }, cancellationToken);
     }
 
-    public Task<string?> PromptSensitiveTotpAsync(
+    public Task<string?> PromptTotpAsync(
         string title,
         string message,
         CancellationToken cancellationToken = default) =>
-        PromptSecretAsync(title, message, "6-digit code", cancellationToken);
+        PromptTotpDialogAsync(title, message, cancellationToken);
 
     public Task<string?> PromptBackupPassphraseAsync(
         string title,
@@ -104,6 +104,34 @@ internal sealed class NavigationDialogService(ISensitiveClipboardService clipboa
         var value = result == ContentDialogResult.Primary ? input.Password : null;
         input.Password = string.Empty;
         return value;
+    }
+
+    private async Task<string?> PromptTotpDialogAsync(string title, string message, CancellationToken cancellationToken)
+    {
+        var input = new SixDigitCodeInput();
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    input
+                }
+            },
+            PrimaryButtonText = "Continue",
+            IsPrimaryButtonEnabled = false,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        input.CodeChanged += (_, _) => dialog.IsPrimaryButtonEnabled = input.Code.Length == 6;
+        dialog.Loaded += (_, _) => input.FocusFirst();
+        var result = await ShowDialogAsync(dialog, cancellationToken);
+        var code = result == ContentDialogResult.Primary ? input.Code : null;
+        input.Clear();
+        return code;
     }
 
     private Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog, CancellationToken cancellationToken) =>

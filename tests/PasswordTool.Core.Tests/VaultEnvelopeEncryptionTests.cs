@@ -53,6 +53,7 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
         var result = vault.UnlockWithMasterPassword(password);
 
         Assert.Equal(VaultUnlockStatus.UnlockedAndMigrated, result.Status);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         Assert.Equal(3, storage.LoadConfig().Version);
         Assert.Equal("legacy password", vault.GetPassword(vault.GetItems().Single().Id, ComputeTotp(secret)));
         var snapshot = Assert.Single(storage.GetSnapshots());
@@ -61,6 +62,7 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
         Assert.True(vault.TryRestoreSnapshot(snapshot.Id, password, out var restoreError), restoreError);
         var remigration = vault.UnlockWithMasterPassword(password);
         Assert.Equal(VaultUnlockStatus.UnlockedAndMigrated, remigration.Status);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         Assert.Equal(3, storage.LoadConfig().Version);
     }
 
@@ -87,6 +89,7 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
         var result = vault.UnlockWithMasterPassword(password);
 
         Assert.Equal(VaultUnlockStatus.UnlockedMigrationDeferred, result.Status);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         Assert.Equal(oldConfig, File.ReadAllText(initial.ConfigPath));
         Assert.Equal(oldVault, File.ReadAllText(initial.VaultPath));
         Assert.Single(vault.GetItems());
@@ -123,6 +126,7 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
 
         vault.ClearSession();
         Assert.True(vault.TryUnlockMasterPassword(password, out var unlockError), unlockError);
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
         Assert.True(vault.NeedsKdfUpgrade);
         var vaultCiphertext = File.ReadAllText(storage.VaultPath);
         Assert.True(vault.TryUpgradeKdf(password, out var upgradeError), upgradeError);

@@ -2,12 +2,14 @@ using System.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PasswordTool.Core.Models;
 using PasswordTool.Presentation;
 using QRCoder;
+using System.Numerics;
 using Windows.Storage.Streams;
 
 namespace PasswordTool_WinUI;
@@ -32,10 +34,6 @@ public sealed partial class MainPage : Page
         Loaded += async (_, _) =>
         {
             systemLockMonitor.LockRequired += SystemLockMonitor_LockRequired;
-            await ViewModel.LoadAuthenticationOptionsAsync();
-            MasterPasswordOption.IsChecked = !ViewModel.UseAuthenticator;
-            AuthenticatorOption.IsChecked = ViewModel.UseAuthenticator;
-            UpdateLoginOptionState();
             ApplyShellState();
             FocusCurrentAuthenticationStep();
         };
@@ -53,7 +51,7 @@ public sealed partial class MainPage : Page
     public static string GroupAutomationId(Guid? id) => id is null ? "Group_Ungrouped" : $"Group_{id:N}";
     public static string GroupChevron(bool expanded) => expanded ? "\uE70D" : "\uE76C";
     public static Brush GroupBrush(string? value) => string.IsNullOrWhiteSpace(value)
-        ? (Brush)Application.Current.Resources["ControlStrongStrokeColorDefaultBrush"]
+        ? (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"]
         : new SolidColorBrush(Windows.UI.Color.FromArgb(255,
             Convert.ToByte(value.Substring(1, 2), 16),
             Convert.ToByte(value.Substring(3, 2), 16),
@@ -69,20 +67,53 @@ public sealed partial class MainPage : Page
             : Windows.UI.Color.FromArgb(255, 255, 255, 255));
     }
 
+    private void VaultRow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not DependencyObject row) return;
+        AddVaultRowButtonShadows(row);
+    }
+
+    private static void AddVaultRowButtonShadows(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is Button button)
+            {
+                if (ElementCompositionPreview.GetElementChildVisual(button) is null)
+                {
+                    var compositor = ElementCompositionPreview.GetElementVisual(button).Compositor;
+                    var shadow = compositor.CreateDropShadow();
+                    shadow.Color = Windows.UI.Color.FromArgb(255, 0, 0, 0);
+                    shadow.Opacity = 0.1f;
+                    shadow.BlurRadius = 5;
+                    shadow.Offset = new Vector3(0, 1, 0);
+                    shadow.Mask = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
+
+                    var shadowVisual = compositor.CreateSpriteVisual();
+                    shadowVisual.Size = new Vector2((float)button.ActualWidth, (float)button.ActualHeight);
+                    shadowVisual.Brush = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+                    shadowVisual.Shadow = shadow;
+                    ElementCompositionPreview.SetElementChildVisual(button, shadowVisual);
+                }
+                continue;
+            }
+
+            AddVaultRowButtonShadows(child);
+        }
+    }
+
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
         if (!UnlockButton.IsEnabled) return;
         UnlockButton.IsEnabled = false;
         try
         {
-            var code = await dialogs.PromptSensitiveTotpAsync(
+            var code = await dialogs.PromptTotpAsync(
                 "Unlock vault", "Enter the current 6-digit code from Google Authenticator.");
             if (code is null) return;
 
-            if (AuthenticatorOption.IsChecked == true)
-                await ViewModel.UnlockWithAuthenticatorAsync(code);
-            else
-                await ViewModel.UnlockAsync(MasterPasswordInput.Password, code);
+            await ViewModel.UnlockAsync(MasterPasswordInput.Password, code);
 
             if (ViewModel.IsUnlocked)
             {
@@ -138,16 +169,6 @@ public sealed partial class MainPage : Page
         if (e.PropertyName is nameof(ShellViewModel.IsUnlocked) or nameof(ShellViewModel.FlowState)) ApplyShellState();
     }
 
-    private void LoginOption_Checked(object sender, RoutedEventArgs e) => UpdateLoginOptionState();
-
-    private void UpdateLoginOptionState()
-    {
-        if (MasterPasswordInput is null || AuthenticatorOption is null) return;
-        var useAuthenticator = AuthenticatorOption.IsChecked == true && AuthenticatorOption.IsEnabled;
-        ViewModel.UseAuthenticator = useAuthenticator;
-        MasterPasswordInput.Visibility = useAuthenticator ? Visibility.Collapsed : Visibility.Visible;
-    }
-
     private void CreateVaultButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.BeginNewVault();
@@ -185,7 +206,7 @@ public sealed partial class MainPage : Page
         {
             AuthenticatorSecretText.Text = setup.SecretBase32;
             AuthenticatorQrImage.Source = await CreateQrBitmapAsync(setup.OtpAuthUri);
-            AuthenticatorConfirmationInput.Focus(FocusState.Programmatic);
+            AuthenticatorConfirmationInput.FocusFirst();
         }
     }
 
@@ -194,7 +215,7 @@ public sealed partial class MainPage : Page
         await ViewModel.CompleteAuthenticatorSetupAsync(
             NewMasterPasswordInput.Password,
             RecoveryPassphraseInput.Password,
-            AuthenticatorConfirmationInput.Text);
+            AuthenticatorConfirmationInput.Code);
         ApplyShellState();
         if (!ViewModel.IsUnlocked) return;
 
@@ -298,10 +319,7 @@ public sealed partial class MainPage : Page
         switch (ViewModel.FlowState)
         {
             case AppFlowState.Unlock:
-                if (ViewModel.UseAuthenticator)
-                    UnlockButton.Focus(FocusState.Programmatic);
-                else
-                    MasterPasswordInput.Focus(FocusState.Programmatic);
+                MasterPasswordInput.Focus(FocusState.Programmatic);
                 break;
             case AppFlowState.CreateMasterPassword:
                 NewMasterPasswordInput.Focus(FocusState.Programmatic);
@@ -314,7 +332,7 @@ public sealed partial class MainPage : Page
         NewMasterPasswordInput.Password = string.Empty;
         ConfirmMasterPasswordInput.Password = string.Empty;
         RecoveryPassphraseInput.Password = string.Empty;
-        AuthenticatorConfirmationInput.Text = string.Empty;
+        AuthenticatorConfirmationInput.Clear();
         AuthenticatorSecretText.Text = string.Empty;
         AuthenticatorQrImage.Source = null;
         RecoverySummaryInfoBar.IsOpen = false;
@@ -505,7 +523,7 @@ public sealed partial class MainPage : Page
         ReplacementMasterPassword.Password = string.Empty;
         ConfirmReplacementMasterPassword.Password = string.Empty;
         AuthenticatorResetMasterPassword.Password = string.Empty;
-        AuthenticatorResetCode.Text = string.Empty;
+        AuthenticatorResetCode.Clear();
         SettingsAuthenticatorSecret.Text = string.Empty;
         SettingsAuthenticatorQr.Source = null;
         SettingsAuthenticatorQr.Visibility = Visibility.Collapsed;
@@ -623,9 +641,8 @@ public sealed partial class MainPage : Page
         if (!await ViewModel.Settings.SaveAsync(SettingsMasterPassword.Password)) return;
         SettingsMasterPassword.Password = string.Empty;
         ViewModel.InactivityTimeout = TimeSpan.FromMinutes(ViewModel.Settings.InactivityTimeoutMinutes);
-        ViewModel.VaultOpenDuration = TimeSpan.FromMinutes(ViewModel.Settings.SelectedVaultOpenDuration.Minutes);
+        ViewModel.VaultOpenDuration = TimeSpan.FromHours(5);
         systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
-        await ViewModel.LoadAuthenticationOptionsAsync();
     }
 
     private async void ChangeMasterPasswordButton_Click(object sender, RoutedEventArgs e)
@@ -638,7 +655,6 @@ public sealed partial class MainPage : Page
         CurrentMasterPassword.Password = string.Empty;
         ReplacementMasterPassword.Password = string.Empty;
         ConfirmReplacementMasterPassword.Password = string.Empty;
-        await ViewModel.LoadAuthenticationOptionsAsync();
     }
 
     private async void UpgradeKdfButton_Click(object sender, RoutedEventArgs e)
@@ -653,7 +669,7 @@ public sealed partial class MainPage : Page
         SettingsAuthenticatorSecret.Text = settingsAuthenticatorSetup.SecretBase32;
         SettingsAuthenticatorQr.Source = await CreateQrBitmapAsync(settingsAuthenticatorSetup.OtpAuthUri);
         SettingsAuthenticatorQr.Visibility = Visibility.Visible;
-        AuthenticatorResetCode.Focus(FocusState.Programmatic);
+        AuthenticatorResetCode.FocusFirst();
     }
 
     private async void ResetAuthenticatorButton_Click(object sender, RoutedEventArgs e)
@@ -662,16 +678,15 @@ public sealed partial class MainPage : Page
         var reset = await ViewModel.Settings.ResetAuthenticatorAsync(
             AuthenticatorResetMasterPassword.Password,
             settingsAuthenticatorSetup,
-            AuthenticatorResetCode.Text);
+            AuthenticatorResetCode.Code);
         if (!reset) return;
 
         AuthenticatorResetMasterPassword.Password = string.Empty;
-        AuthenticatorResetCode.Text = string.Empty;
+        AuthenticatorResetCode.Clear();
         SettingsAuthenticatorSecret.Text = string.Empty;
         SettingsAuthenticatorQr.Source = null;
         SettingsAuthenticatorQr.Visibility = Visibility.Collapsed;
         settingsAuthenticatorSetup = null;
-        await ViewModel.LoadAuthenticationOptionsAsync();
     }
 
     private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)

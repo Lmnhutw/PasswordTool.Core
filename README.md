@@ -9,8 +9,8 @@ The desktop application is implemented exclusively with WinUI 3. The former WinF
 | Area | What it does |
 | --- | --- |
 | **Encrypted vault** | Stores password or recovery-code entries in an AES-256-GCM encrypted local vault. |
-| **Sign-in** | Uses a Master Password; Google Authenticator can be used for a limited, trusted-device sign-in path. |
-| **Protected actions** | Requires a current TOTP code to reveal secrets or export/import a backup. |
+| **Sign-in** | Requires a Master Password and a current six-digit Google Authenticator code. |
+| **Session** | Avoids repeat TOTP prompts for actions; locks after one minute idle by default and expires after five hours. |
 | **Backup & recovery** | Creates and verifies encrypted external backups and can recover a vault on a new Windows installation. |
 | **Everyday organization** | Searches locally and organizes entries with favorites, folders, and tags. |
 | **Password generation** | Generates cryptographically random passwords and readable passphrases with strength feedback. |
@@ -55,28 +55,28 @@ PasswordTool releases are self-contained: an end user does not need to install .
 5. Store the Master Password safely and make sure the Authenticator entry is backed up according to your authenticator application's recovery/export process. Keep those recovery paths separate. PasswordTool has no server-side reset, recovery email, administrator override, or backdoor.
 6. Add a test item, lock the vault, unlock it again, and create an encrypted external backup before relying on the vault for important data.
 
-The Master Password is always the durable way to unlock the vault. Google Authenticator sign-in is a convenience path for the same trusted Windows user and depends on a valid local token. It can expire or become invalid after configuration changes, Windows-profile changes, restoring files, or moving to another computer; in those cases, sign in with the Master Password.
+Unlock the vault with both the Master Password and the current 6-digit Google Authenticator code. PasswordTool does not offer Authenticator-only sign-in. Enter codes in the six digit boxes; pasting a six-digit code is supported.
 
 ## Everyday use
 
-1. **Unlock:** enter the Master Password, or use the current PasswordTool Authenticator code when the trusted-device option is available.
+1. **Unlock:** enter the Master Password and current PasswordTool Authenticator code.
 2. **Add and organize:** create Password or Recovery-code entries and optionally assign favorites, folders, tags, URLs, notes, or a website-specific TOTP secret.
-3. **Reveal or copy a secret:** enter the current PasswordTool Authenticator code when prompted. PasswordTool decrypts the vault in the active application session and shows only the requested value; the code itself does not decrypt the password.
-4. **Lock:** use the lock action when finished. The app also locks on configured inactivity, Windows lock/disconnect, suspend, and resume boundaries.
+3. **Reveal or copy a secret:** no second Authenticator prompt is needed while the sign-in session is active.
+4. **Lock:** Lock keeps PasswordTool open and locks only the vault. The vault also locks after one minute of inactivity by default, or when Windows locks/disconnects, suspends, or resumes. A sign-in session expires after five hours.
 5. **Back up:** regularly export an encrypted backup using a separate strong backup passphrase, store it away from the PC, and verify it in **Backup & Recovery Center**.
 6. **Check safety:** run **Local Security Check** to find weak, exactly reused, or old passwords without sending values to an online service.
 
-When recovering on another Windows installation, the backup passphrase decrypts the backup. You then create a new Master Password and a new PasswordTool Authenticator for that installation. The old trusted-device token is deliberately not transferred.
+When recovering on another Windows installation, the backup passphrase decrypts the backup. You then create a new Master Password and a new PasswordTool Authenticator for that installation. Legacy trusted-device tokens are not used by the current sign-in flow.
 
 ### What must be kept safe
 
 | If this is lost | Result |
 | --- | --- |
-| Master Password | Google Authenticator sign-in may work only while the local one-day trusted token remains valid. It cannot reset or reveal the Master Password. Create an encrypted backup before losing access. |
-| Authenticator entry/device | Use the Master Password to unlock, then reset the PasswordTool Authenticator in Settings. |
-| Both Master Password and usable trusted Authenticator access | The local vault cannot be recovered. There is deliberately no backdoor. An encrypted backup is useful only if its separate backup passphrase is known. |
+| Master Password | The vault cannot be unlocked without the Master Password. Create an encrypted backup before losing access. |
+| Authenticator entry/device | Recover from an encrypted backup and create a new PasswordTool Authenticator. |
+| Master Password and Authenticator access | The local vault cannot be unlocked. There is deliberately no backdoor. An encrypted backup is useful only if its separate backup passphrase is known. |
 | Backup passphrase | That backup cannot be decrypted. The live vault is unaffected while its own Master Password remains available. |
-| Computer or Windows profile | Restore an encrypted external backup on the new installation. Copying the trusted token does not make it portable because DPAPI binds it to the Windows user context. |
+| Computer or Windows profile | Restore an encrypted external backup on the new installation. Create a new Master Password and Authenticator during recovery. |
 
 ## Build from source
 
@@ -136,14 +136,14 @@ The terms in that flow mean:
 - **KEK (Key Encryption Key):** a key derived from the Master Password and a random salt using Argon2id. It is not stored. It wraps, or encrypts, the DEK.
 - **Envelope encryption:** vault data is encrypted with the random DEK, while the Master Password-derived KEK encrypts only that DEK. Therefore, changing the Master Password or strengthening KDF parameters re-wraps the same DEK without decrypting and re-encrypting the entire vault file.
 - **AES-256-GCM:** authenticated encryption. A wrong key, modified ciphertext, or ciphertext used in the wrong context fails authentication instead of returning unchecked plaintext. PasswordTool binds the wrapped DEK, vault payload, and Authenticator secret to different purposes.
-- **DPAPI CurrentUser:** a Windows protection boundary used only for the optional, short-lived trusted-device token. Its protected blobs can be opened only in the same Windows user context under normal platform operation.
+- **DPAPI CurrentUser:** a Windows protection boundary used by legacy trusted-device token support. Its protected blobs can be opened only in the same Windows user context under normal platform operation.
 
 ### What happens when a password is shown
 
 1. The encrypted vault remains in `.storage`; the UI masking characters are not the security boundary.
-2. The vault must already be unlocked. A Master Password unlock derives the KEK and unwraps the DEK. A trusted-device unlock first validates the current TOTP code, then asks DPAPI to release its protected copy of the DEK.
+2. The vault must already be unlocked with both factors. The Master Password derives the KEK and unwraps the DEK; the Authenticator code verifies the sign-in session.
 3. PasswordTool uses the DEK to authenticate and decrypt the vault into the running process's session memory.
-4. Revealing, editing, or exporting sensitive data requires a current PasswordTool Authenticator code when configured. This code authorizes the action; it is not converted into the encryption key and does not decrypt the password by itself.
+4. The successful sign-in authorizes vault actions for at most five hours. Actions do not request another Authenticator code during that session.
 5. Only after that check does the UI display or explicitly copy the requested value. Copying exposes the value to the Windows clipboard temporarily; PasswordTool clears it after 30 seconds if it has not changed.
 6. Locking or ending the session clears application-held key material where the runtime permits. The on-disk vault remains encrypted throughout.
 
@@ -151,17 +151,14 @@ This separation is why possession of a current 6-digit code alone is insufficien
 
 ### Vault-format migration
 
-Vault format v3 introduced envelope encryption. After a successful Master Password unlock of a supported v1/v2 vault, PasswordTool creates a fresh random DEK, stages the v3 config and vault, reads and cryptographically verifies both staged files, preserves a paired legacy snapshot, and only then replaces the active pair. If any stage fails, the original pair is restored and the current legacy session may continue with a migration-deferred warning. Google Authenticator trusted unlock remains unavailable until migration succeeds.
+Vault format v3 introduced envelope encryption. After a successful Master Password unlock of a supported v1/v2 vault, PasswordTool creates a fresh random DEK, stages the v3 config and vault, reads and cryptographically verifies both staged files, preserves a paired legacy snapshot, and only then replaces the active pair. If any stage fails, the original pair is restored and the current legacy session may continue with a migration-deferred warning. Sign-in still requires the Authenticator code after the Master Password unlock.
 
 ### Sign-in choices
 
-- **Master Password** derives a KEK that unwraps the random vault DEK. A successful sign-in refreshes the one-day trusted token.
-- **Google Authenticator** requires both a valid 6-digit TOTP code and an unexpired `.trusted-unlock` token on the *same Windows user profile*. It does not permanently replace the Master Password.
-- **Hybrid** is the default preference. The Settings screen can prefer Google Authenticator at the next unlock, but changing this setting requires the Master Password.
-- Older vaults without a TOTP secret remain Master-Password-only.
-- Existing v1/v2 vaults remain readable and migrate atomically to v3 envelope encryption after a successful Master Password sign-in. Legacy trusted unlock is disabled until that migration succeeds.
-- One successful PasswordTool Authenticator check opens a short sensitive-action session. Settings can choose 1–30 minutes; the default is five. Saving timeout changes clears any active sensitive-action session.
-- The vault locks after a configurable 1–120 minutes of system inactivity (10 minutes by default), when the Windows session locks or disconnects, and when Windows suspends or resumes. Only one desktop instance runs per Windows session.
+- **Sign-in:** the Master Password unwraps the DEK, then a valid six-digit PasswordTool Authenticator code completes the sign-in. Authenticator-only unlock is unavailable; stored login-mode preferences are ignored for compatibility.
+- Existing v1/v2 vaults remain readable and migrate atomically to v3 envelope encryption. Vaults without an Authenticator secret cannot complete sign-in.
+- Sensitive actions do not request a second code. The in-memory sign-in session expires after five hours, and the vault locks after 1–120 minutes of inactivity (one minute by default), or on Windows lock/disconnect, suspend, and resume.
+- Manual Lock keeps the app open, clears decrypted vault state, and returns to the in-app Unlock vault screen.
 
 ### Vault use and backups
 
@@ -183,14 +180,14 @@ Vault format v3 introduced envelope encryption. After a successful Master Passwo
 
 ## Security model and limits
 
-PasswordTool protects data at rest and provides a local second factor for sensitive actions. It is not a substitute for securing Windows itself.
+PasswordTool protects data at rest and requires a local second factor to open the vault. It is not a substitute for securing Windows itself.
 
 | Protected by the application | Not protected by the application |
 | --- | --- |
 | Vault entries and TOTP secret are encrypted with AES-256-GCM. | Malware, a compromised running Windows session, screen capture, or memory inspection while the vault is open. |
 | Every new vault uses an independent random DEK and KDF salt; cryptographic key buffers are cleared when sessions end where the runtime permits. | Loss of the Master Password, authenticator secret, and usable backups: there is no recovery, reset, backdoor, or cloud copy. |
-| The trusted token has separate DPAPI-protected Authenticator-secret and DEK blobs, is bound to the current config, and releases the DEK only after app-level TOTP verification. | Malware or another process already acting as the same Windows user; TOTP is an application gate, not a cryptographic second factor against a compromised Windows account. |
-| TOTP gates secret reveal, editing, and backup export/import when configured. | A weak Master Password or an unlocked device left accessible to another person. |
+| Unlock requires both the Master Password and a valid six-digit Authenticator code. | Malware or another process already acting as the same Windows user; TOTP does not protect an already-unlocked session. |
+| The in-memory sign-in session authorizes vault actions for up to five hours. | A weak Master Password or an unlocked device left accessible to another person. |
 | Sensitive clipboard values are cleared after 30 seconds when unchanged. | Another process reading the clipboard, clipboard history, remote-control software, or malware. |
 
 Keep Windows patched, use a strong unique Master Password, lock the PC when away, protect the authenticator and backup passphrase separately, and keep encrypted backups in a location you control. Hidden/System file attributes are only concealment; encryption and Windows account security are the actual boundaries.
@@ -207,7 +204,7 @@ The desktop app stores its files in:
 | --- | --- |
 | `.config` | Versioned Master key slot (Argon2id metadata plus wrapped DEK), encrypted Authenticator secret, login/security settings, and backup-health timestamps. |
 | `.storage` | AES-256-GCM encrypted vault payload. |
-| `.trusted-unlock` | Optional, one-day token with separate DPAPI-protected Authenticator-secret and DEK blobs for the current Windows user. |
+| `.trusted-unlock` | Legacy trusted-unlock token file; Authenticator-only sign-in is no longer offered. |
 | `.snapshots` | Up to five previous paired config/vault states, retaining the same encrypted-at-rest representation. |
 
 Do not manually edit, mix, or partially restore these files. If only `.config` or `.storage` is present, the app stops rather than overwriting partial storage.

@@ -12,7 +12,7 @@ public interface IUserDialogService
 {
     Task<bool> ConfirmAsync(string title, string message, string confirmText, CancellationToken cancellationToken = default);
     Task ShowErrorAsync(string title, string message, CancellationToken cancellationToken = default);
-    Task<string?> PromptSensitiveTotpAsync(string title, string message, CancellationToken cancellationToken = default);
+    Task<string?> PromptTotpAsync(string title, string message, CancellationToken cancellationToken = default);
     Task<string?> PromptBackupPassphraseAsync(string title, string message, CancellationToken cancellationToken = default);
     Task ShowSecretAsync(string title, string value, bool multiline, CancellationToken cancellationToken = default);
 }
