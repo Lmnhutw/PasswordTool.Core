@@ -50,7 +50,9 @@ Config and vault writes are one logical state transition: stage and read back bo
 - Favorites, folders, and tags live inside the encrypted vault and backup payloads. List clones expose only whether a TOTP secret exists, never the secret itself.
 - `Title` is required. Core validates item shape before add/update/export/import.
 - Opening the vault requires both the Master Password and PasswordTool Authenticator TOTP. TOTP verifies the session; it never derives, wraps, encrypts, or decrypts a vault key.
-- A successful sign-in authorizes vault actions for at most five hours. No second TOTP prompt appears during that session. The authorization is in-memory only and is cleared when the vault locks.
+- A successful sign-in authorizes vault actions for at most five hours. Deleting a group and all its data additionally requires the exact confirmation phrase and a current TOTP code, checked in Core even during an active session. The authorization is in-memory only and is cleared when the vault locks.
+- Desktop sign-in validates the Master Password before showing the TOTP prompt. This precheck opens no session and writes no storage; final unlock still requires both factors.
+- Group deletion removes the group and all its entries (including Trash entries) from the current vault. Other groups and Ungrouped entries remain intact. Existing backups and snapshots are not erased.
 - Backups use the `PasswordToolBackup` version-1 envelope: PBKDF2-SHA256 (600,000 iterations, random 16-byte salt) derives a separate 256-bit key; AES-256-GCM encrypts only vault entries.
 - Inspection authenticates and validates the complete backup but returns only format/version, creation time, and item/type/active/Trash counts. It never returns the decrypted payload or secret fields.
 - New-machine recovery is allowed only when neither `.config` nor `.storage` exists. Core validates the backup, new Master Password, and new Authenticator confirmation before atomically committing a fresh random DEK, Argon2id Master key slot, and recovered encrypted vault. It never imports the old config, vault key, trusted token, or application Authenticator secret.

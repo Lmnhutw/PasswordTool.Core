@@ -3,6 +3,21 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="VaultGroupBackgroundBrush" Color="#E6E6E6" />
+            <SolidColorBrush x:Key="VaultGroupHoverBrush" Color="#D5D5D5" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="VaultGroupBackgroundBrush" Color="#333333" />
+            <SolidColorBrush x:Key="VaultGroupHoverBrush" Color="#454545" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="VaultGroupBackgroundBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="VaultGroupHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
     <x:Double x:Key="PasswordToolContentMaxWidth">1200</x:Double>
     <Thickness x:Key="PasswordToolPagePadding">24</Thickness>
     <Thickness x:Key="PasswordToolCardPadding">24</Thickness>

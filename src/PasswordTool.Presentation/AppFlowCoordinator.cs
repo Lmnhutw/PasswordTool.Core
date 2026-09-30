@@ -26,6 +26,9 @@ public sealed class AppFlowCoordinator
     public static AppFlowState ResolveInitialState(bool isInitialized, bool hasPartialStorage) =>
         hasPartialStorage ? AppFlowState.Recover : isInitialized ? AppFlowState.Unlock : AppFlowState.FirstLaunch;
 
+    public Task<bool> ValidateMasterPasswordAsync(string masterPassword, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.ValidateMasterPassword(masterPassword), cancellationToken);
+
     public async Task<VaultUnlockResult> UnlockAsync(string masterPassword, string totpCode, CancellationToken cancellationToken = default)
     {
         var result = await operations.RunAsync(() =>
@@ -132,8 +135,8 @@ public sealed class AppFlowCoordinator
     public Task UpdateGroupAsync(Guid id, string name, string? accentColor, CancellationToken cancellationToken = default) =>
         operations.RunAsync(() => vaultService.UpdateGroup(id, name, accentColor), cancellationToken);
 
-    public Task DeleteGroupAsync(Guid id, CancellationToken cancellationToken = default) =>
-        operations.RunAsync(() => vaultService.DeleteGroup(id), cancellationToken);
+    public Task DeleteGroupAsync(Guid id, string confirmation, string totpCode, CancellationToken cancellationToken = default) =>
+        operations.RunAsync(() => vaultService.DeleteGroup(id, confirmation, totpCode), cancellationToken);
 
     public Task<TimeSpan> GetInactivityTimeoutAsync(CancellationToken cancellationToken = default) =>
         operations.RunAsync(

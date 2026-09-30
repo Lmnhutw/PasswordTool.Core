@@ -263,6 +263,23 @@ public sealed class VaultService : IDisposable
         return result.Success;
     }
 
+    public bool ValidateMasterPassword(string masterPassword)
+    {
+        ThrowIfDisposed();
+        byte[] key = [];
+        try
+        {
+            var config = storageService.LoadConfig();
+            if (!masterPasswordService.TryUnlockConfig(masterPassword, config, out key, out _)) return false;
+            var payload = storageService.LoadVaultPayload();
+            _ = config.Version >= 3
+                ? encryptionService.DecryptObject<VaultData>(payload, key, MasterPasswordService.VaultContext)
+                : encryptionService.DecryptObject<VaultData>(payload, key);
+            return true;
+        }
+        finally { if (key.Length > 0) CryptographicOperations.ZeroMemory(key); }
+    }
+
     public VaultUnlockResult UnlockWithMasterPassword(string masterPassword)
     {
         ThrowIfDisposed();
@@ -677,14 +694,27 @@ public sealed class VaultService : IDisposable
         SaveVault();
     }
 
-    public void DeleteGroup(Guid id)
+    public void DeleteGroup(Guid id, string confirmation, string totpCode)
     {
         ThrowIfDisposed();
         EnsureOpen();
         var group = vaultData!.Groups.FirstOrDefault(group => group.Id == id) ?? throw new KeyNotFoundException("Group not found.");
-        foreach (var item in vaultData.Items.Where(item => item.GroupId == id)) item.GroupId = null;
-        vaultData.Groups.Remove(group);
-        SaveVault();
+        if (!string.Equals(confirmation, $"Confirm delete all data in \"{group.Name}\"", StringComparison.Ordinal))
+            throw new ArgumentException("The confirmation text does not match the group name.", nameof(confirmation));
+        if (totpSecretBase32 is null || !totpService.VerifyCode(totpSecretBase32, totpCode))
+            throw new UnauthorizedAccessException("Incorrect authenticator code. Please try again.");
+
+        var previousItems = vaultData.Items;
+        var previousGroups = vaultData.Groups;
+        vaultData.Items = previousItems.Where(item => item.GroupId != id).ToList();
+        vaultData.Groups = previousGroups.Where(candidate => candidate.Id != id).ToList();
+        try { SaveVault(); }
+        catch
+        {
+            vaultData.Items = previousItems;
+            vaultData.Groups = previousGroups;
+            throw;
+        }
     }
 
     public VaultItem GetItemForEditing(Guid id, string totpCode)

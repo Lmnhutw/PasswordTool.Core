@@ -49,7 +49,7 @@ public sealed partial class MainPage : Page
     public static string GroupAutomationId(Guid? id) => id is null ? "Group_Ungrouped" : $"Group_{id:N}";
     public static string GroupChevron(bool expanded) => expanded ? "\uE70D" : "\uE76C";
     public static Brush GroupBrush(string? value) => string.IsNullOrWhiteSpace(value)
-        ? (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"]
+        ? (Brush)Application.Current.Resources["VaultGroupBackgroundBrush"]
         : new SolidColorBrush(Windows.UI.Color.FromArgb(255,
             Convert.ToByte(value.Substring(1, 2), 16),
             Convert.ToByte(value.Substring(3, 2), 16),
@@ -94,11 +94,22 @@ public sealed partial class MainPage : Page
     {
         if (sender is not Button button) return;
         button.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
-        button.BorderThickness = new Thickness(1);
     }
 
     private static void VaultIconButton_PointerExited(object sender, PointerRoutedEventArgs e) =>
-        ((Button)sender).BorderThickness = new Thickness(0);
+        ((Button)sender).BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+    private void GroupTab_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Button { Tag: VaultItemGroup { IsExpanded: false } } button)
+            button.Background = (Brush)Application.Current.Resources["VaultGroupHoverBrush"];
+    }
+
+    private void GroupTab_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Button { Tag: VaultItemGroup group } button)
+            button.Background = GroupBrush(group.AccentColor);
+    }
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
@@ -106,11 +117,13 @@ public sealed partial class MainPage : Page
         UnlockButton.IsEnabled = false;
         try
         {
+            var password = MasterPasswordInput.Password;
+            if (!await ViewModel.ValidateMasterPasswordAsync(password)) return;
             var code = await dialogs.PromptTotpAsync(
                 "Unlock vault", "Enter the current 6-digit code from Google Authenticator.");
             if (code is null) return;
 
-            await ViewModel.UnlockAsync(MasterPasswordInput.Password, code);
+            await ViewModel.UnlockAsync(password, code);
 
             if (ViewModel.IsUnlocked)
             {
@@ -400,6 +413,8 @@ public sealed partial class MainPage : Page
     private void GroupHeaderButton_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is VaultItemGroup group) ViewModel.Vault.ToggleGroup(group);
+        if (sender is Button { Tag: VaultItemGroup selected } button)
+            button.Background = GroupBrush(selected.AccentColor);
     }
 
     private async void RenameGroupMenuItem_Click(object sender, RoutedEventArgs e)

@@ -6,6 +6,47 @@ namespace PasswordTool_WinUI;
 
 internal sealed class NavigationDialogService(ISensitiveClipboardService clipboard, DialogLifetime lifetime) : IUserDialogService
 {
+    public async Task<(string Confirmation, string TotpCode)?> ConfirmGroupDeletionAsync(
+        string groupName, CancellationToken cancellationToken = default)
+    {
+        var expected = $"Confirm delete all data in \"{groupName}\"";
+        var confirmation = new TextBox { Header = "Type the exact confirmation below" };
+        var code = new SixDigitCodeInput();
+        var dialog = new ContentDialog
+        {
+            Title = "Delete group and all its data",
+            Content = new StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"Permanently delete \"{groupName}\" and ALL its passwords, recovery codes, notes, and other saved data, including items in Trash? Review this group carefully. This cannot be undone in the vault.",
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new TextBlock { Text = expected, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true },
+                    confirmation,
+                    new TextBlock { Text = "Enter the current 6-digit code from Google Authenticator.", TextWrapping = TextWrapping.Wrap },
+                    code
+                }
+            },
+            PrimaryButtonText = "Delete all data",
+            IsPrimaryButtonEnabled = false,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        void UpdateConfirmation() => dialog.IsPrimaryButtonEnabled =
+            string.Equals(confirmation.Text, expected, StringComparison.Ordinal) && code.Code.Length == 6;
+        confirmation.TextChanged += (_, _) => UpdateConfirmation();
+        code.CodeChanged += (_, _) => UpdateConfirmation();
+        try
+        {
+            return await ShowDialogAsync(dialog, cancellationToken) == ContentDialogResult.Primary
+                ? (confirmation.Text, code.Code) : null;
+        }
+        finally { confirmation.Text = string.Empty; code.Clear(); }
+    }
 
     public Task<bool> ConfirmAsync(
         string title,

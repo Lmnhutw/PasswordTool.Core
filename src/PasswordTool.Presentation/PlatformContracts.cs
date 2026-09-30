@@ -10,6 +10,7 @@ public interface INavigationService
 
 public interface IUserDialogService
 {
+    Task<(string Confirmation, string TotpCode)?> ConfirmGroupDeletionAsync(string groupName, CancellationToken cancellationToken = default);
     Task<bool> ConfirmAsync(string title, string message, string confirmText, CancellationToken cancellationToken = default);
     Task ShowErrorAsync(string title, string message, CancellationToken cancellationToken = default);
     Task<string?> PromptTotpAsync(string title, string message, CancellationToken cancellationToken = default);

@@ -13,7 +13,7 @@ public sealed class VaultServiceTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void Group_is_optional_single_valued_and_deletion_moves_items_to_ungrouped()
+    public void Group_deletion_requires_exact_confirmation_and_fresh_totp_and_removes_only_group_data()
     {
         var totpService = new TotpService();
         var secret = totpService.GenerateSecret();
@@ -21,14 +21,51 @@ public sealed class VaultServiceTests : IDisposable
         vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
         var group = vault.AddGroup("Database", "#336699");
         var item = vault.AddItem(new VaultItem { Title = "PostgreSQL", Password = "secret", GroupId = group.Id });
+        var other = vault.AddItem(new VaultItem { Title = "Other", Password = "keep" });
+        var trashed = vault.AddItem(new VaultItem { Title = "Old", Password = "old", GroupId = group.Id });
+        vault.DeleteItem(trashed.Id);
 
         Assert.Equal(group.Id, item.GroupId);
         Assert.Single(vault.GetGroups());
 
-        vault.DeleteGroup(group.Id);
+        var confirmation = "Confirm delete all data in \"Database\"";
+        Assert.Throws<ArgumentException>(() => vault.DeleteGroup(group.Id, "Delete Database", ComputeTotp(secret)));
+        Assert.Throws<UnauthorizedAccessException>(() => vault.DeleteGroup(group.Id, confirmation, GetInvalidTotpCode(secret, totpService)));
+        Assert.Equal(2, vault.GetItems().Count);
+        Assert.Single(vault.GetGroups());
+        Assert.Single(vault.GetDeletedItems());
+        vault.DeleteGroup(group.Id, confirmation, ComputeTotp(secret));
 
-        Assert.Null(Assert.Single(vault.GetItems()).GroupId);
+        Assert.Equal(other.Id, Assert.Single(vault.GetItems()).Id);
+        Assert.Empty(vault.GetDeletedItems());
         Assert.Empty(vault.GetGroups());
+        vault.ClearSession();
+        Assert.True(vault.TryUnlockMasterPassword("correct horse battery staple", out _));
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
+        Assert.Equal(other.Id, Assert.Single(vault.GetItems()).Id);
+        Assert.Empty(vault.GetDeletedItems());
+        Assert.Empty(vault.GetGroups());
+    }
+
+    [Fact]
+    public void Password_precheck_does_not_open_a_session_or_change_storage()
+    {
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        var storage = new VaultStorageService(tempDirectory);
+        using var vault = new VaultService(storage, new EncryptionService(), totp);
+        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        vault.ClearSession();
+        var config = File.ReadAllText(storage.ConfigPath);
+        var payload = File.ReadAllText(storage.VaultPath);
+
+        Assert.False(vault.ValidateMasterPassword("wrong password"));
+        Assert.False(vault.ValidateMasterPassword(""));
+        Assert.True(vault.ValidateMasterPassword("correct horse battery staple"));
+        Assert.Throws<InvalidOperationException>(() => vault.GetItems());
+        Assert.Throws<InvalidOperationException>(() => vault.VerifyTotpForSession(ComputeTotp(secret)));
+        Assert.Equal(config, File.ReadAllText(storage.ConfigPath));
+        Assert.Equal(payload, File.ReadAllText(storage.VaultPath));
     }
 
     [Fact]

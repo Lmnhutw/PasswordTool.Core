@@ -66,6 +66,19 @@ public sealed partial class ShellViewModel : ObservableObject
     public bool IsVaultRoute => CurrentRoute == AppRoute.Vault;
     public bool IsHashToolRoute => CurrentRoute == AppRoute.HashTool;
 
+    public async Task<bool> ValidateMasterPasswordAsync(string masterPassword)
+    {
+        IsStatusOpen = false;
+        try
+        {
+            if (await flow.ValidateMasterPasswordAsync(masterPassword)) return true;
+            StatusMessage = "The Master Password is incorrect. Please try again.";
+            IsStatusOpen = true;
+        }
+        catch (Exception exception) { ShowMappedError(exception); }
+        return false;
+    }
+
     public async Task UnlockAsync(string masterPassword, string totpCode)
     {
         IsStatusOpen = false;
@@ -264,8 +277,10 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task DeleteGroupAsync(Guid id, string name)
     {
-        if (!await dialogs.ConfirmAsync("Delete group", $"Delete '{name}'? Its credentials will move to Ungrouped.", "Delete group")) return;
-        try { await flow.DeleteGroupAsync(id); await Vault.RefreshAsync(); }
+        var confirmation = await dialogs.ConfirmGroupDeletionAsync(name);
+        if (confirmation is null) return;
+        try { await flow.DeleteGroupAsync(id, confirmation.Value.Confirmation, confirmation.Value.TotpCode); await Vault.RefreshAsync(); }
+        catch (UnauthorizedAccessException) { await dialogs.ShowErrorAsync("Group was not deleted", "Incorrect authenticator code. Please try again."); }
         catch (Exception exception) { ShowMappedError(exception); }
     }
 
