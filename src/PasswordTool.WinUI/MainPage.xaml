@@ -14,17 +14,18 @@
 
     <Page.Resources>
         <Style x:Key="VaultRowIconButtonStyle" BasedOn="{StaticResource DefaultButtonStyle}" TargetType="Button">
-            <Setter Property="Width" Value="30" />
-            <Setter Property="Height" Value="30" />
-            <Setter Property="MinWidth" Value="30" />
-            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Width" Value="20" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="MinWidth" Value="20" />
+            <Setter Property="MinHeight" Value="20" />
+            <Setter Property="Padding" Value="0" />
             <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style x:Key="VaultRowSymbolStyle" TargetType="SymbolIcon">
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
             <Setter Property="RenderTransform">
                 <Setter.Value>
-                    <ScaleTransform ScaleX="0.8" ScaleY="0.8" />
+                    <ScaleTransform ScaleX="1" ScaleY="1" />
                 </Setter.Value>
             </Setter>
         </Style>
@@ -35,8 +36,7 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         </Style>
         <Style x:Key="VaultDataRowContainerStyle" BasedOn="{StaticResource VaultTableItemContainerStyle}" TargetType="ListViewItem">
-            <Setter Property="BorderBrush" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="BorderThickness" Value="0" />
         </Style>
     </Page.Resources>
 
@@ -275,12 +275,12 @@
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
-                                    <Grid Margin="0,8,0,4">
+                                    <Grid Margin="0,8,0,4" Padding="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="40" />
+                                            <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <Border Grid.Row="1" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
+                                        <Border Grid.Row="1" Background="{ThemeResource SubtleFillColorSecondaryBrush}" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
                                             <ListView Margin="0,0,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
@@ -343,12 +343,13 @@
                                             <TextBlock Margin="0,0,36,0" VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                                             <Button HorizontalAlignment="{x:Bind local:MainPage.NotesRevealAlignment(HideNotes), Mode=OneTime}" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
                                         </Grid>
+                                        <Border Grid.ColumnSpan="6" Height="1" Margin="-12,0,-12,-10" VerticalAlignment="Bottom" Background="{ThemeResource DividerStrokeColorDefaultBrush}" IsHitTestVisible="False" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsLastInGroup), Mode=OneTime}" />
                                     </Grid>
                                                     </DataTemplate>
                                                 </ListView.ItemTemplate>
                                             </ListView>
                                         </Border>
-                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Left" Canvas.ZIndex="1" Padding="12,10" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6,6,0,0">
+                                        <Button Grid.Row="0" Margin="12,0,0,8" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="12,8" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
                                                 <TextBlock MaxWidth="280" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
@@ -400,12 +401,12 @@
                             ShowsScrollingPlaceholders="True">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="presentation:VaultItemGroup">
-                                    <Grid Margin="0,8,0,4">
+                                    <Grid Margin="0,8,0,4" Padding="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="40" />
+                                            <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <Border Grid.Row="1" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
+                                        <Border Grid.Row="1" Background="{ThemeResource SubtleFillColorSecondaryBrush}" BorderBrush="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" BorderThickness="2" CornerRadius="8" MinHeight="40">
                                             <ListView Margin="0,0,0,4" Visibility="{x:Bind local:MainPage.BoolToVisibility(IsExpanded), Mode=OneWay}" ItemContainerStyle="{StaticResource VaultDataRowContainerStyle}" ItemsSource="{x:Bind Items, Mode=OneWay}" SelectionMode="Single" ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled" DoubleTapped="VaultItems_DoubleTapped" KeyDown="VaultItems_KeyDown">
                                                 <ListView.ItemTemplate>
                                                     <DataTemplate x:DataType="presentation:VaultItemListItem">
@@ -466,13 +467,14 @@
                                         <TextBlock Margin="0,0,36,0" VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                                         <Button HorizontalAlignment="{x:Bind local:MainPage.NotesRevealAlignment(HideNotes), Mode=OneTime}" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="4" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><SymbolIcon Symbol="View" /></Button>
                                     </Grid>
+                                    <Border Grid.ColumnSpan="7" Height="1" Margin="-12,0,-12,-10" VerticalAlignment="Bottom" Background="{ThemeResource DividerStrokeColorDefaultBrush}" IsHitTestVisible="False" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsLastInGroup), Mode=OneTime}" />
                                     <TextBlock Grid.Column="6" VerticalAlignment="Center" Text="{x:Bind UpdatedDisplay}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                                     </DataTemplate>
                                                 </ListView.ItemTemplate>
                                             </ListView>
                                         </Border>
-                                        <Button Grid.RowSpan="2" Margin="16,0,0,0" VerticalAlignment="Top" Canvas.ZIndex="1" HorizontalAlignment="Left" Padding="12,10" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6,6,0,0">
+                                        <Button Grid.Row="0" Margin="12,0,0,8" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="12,8" AutomationProperties.AutomationId="{x:Bind local:MainPage.GroupAutomationId(Id)}" AutomationProperties.Name="{x:Bind Name}" Background="{x:Bind local:MainPage.GroupBrush(AccentColor), Mode=OneTime}" Foreground="{x:Bind local:MainPage.GroupTextBrush(AccentColor), Mode=OneTime}" Click="GroupHeaderButton_Click" Tag="{x:Bind}" CornerRadius="6">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
                                                 <FontIcon Glyph="{x:Bind local:MainPage.GroupChevron(IsExpanded), Mode=OneWay}" />
                                                 <TextBlock MaxWidth="360" FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />

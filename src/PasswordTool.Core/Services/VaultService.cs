@@ -272,7 +272,7 @@ public sealed class VaultService : IDisposable
         {
             var config = storageService.LoadConfig();
             if (!masterPasswordService.TryUnlockConfig(masterPassword, config, out unlockedKey, out var decryptedTotpSecret))
-                return new VaultUnlockResult(VaultUnlockStatus.Failed, "The Master Password is incorrect.");
+                return new VaultUnlockResult(VaultUnlockStatus.Failed, "The Master Password is incorrect. Please try again.");
 
             var encryptedVaultJson = storageService.LoadVaultPayload();
             var decryptedVault = config.Version >= 3

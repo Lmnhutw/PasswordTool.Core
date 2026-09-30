@@ -90,7 +90,8 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
         var items = visible.Where(item => item.GroupId == id).ToList();
         if (items.Count == 0) return;
         var group = new VaultItemGroup(id, name, accentColor, sortOrder) { IsExpanded = !collapsedGroups.Contains(id) };
-        foreach (var item in items) group.Items.Add(item);
+        for (var index = 0; index < items.Count; index++)
+            group.Items.Add(items[index] with { IsLastInGroup = index == items.Count - 1 });
         ItemGroups.Add(group);
     }
 

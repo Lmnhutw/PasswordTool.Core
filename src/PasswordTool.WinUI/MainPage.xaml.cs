@@ -2,14 +2,12 @@ using System.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PasswordTool.Core.Models;
 using PasswordTool.Presentation;
 using QRCoder;
-using System.Numerics;
 using Windows.Storage.Streams;
 
 namespace PasswordTool_WinUI;
@@ -70,38 +68,37 @@ public sealed partial class MainPage : Page
     private void VaultRow_Loaded(object sender, RoutedEventArgs e)
     {
         if (sender is not DependencyObject row) return;
-        AddVaultRowButtonShadows(row);
+        ApplyVaultIconHover(row);
     }
 
-    private static void AddVaultRowButtonShadows(DependencyObject parent)
+    private static void ApplyVaultIconHover(DependencyObject parent)
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
         {
             var child = VisualTreeHelper.GetChild(parent, i);
             if (child is Button button)
             {
-                if (ElementCompositionPreview.GetElementChildVisual(button) is null)
-                {
-                    var compositor = ElementCompositionPreview.GetElementVisual(button).Compositor;
-                    var shadow = compositor.CreateDropShadow();
-                    shadow.Color = Windows.UI.Color.FromArgb(255, 0, 0, 0);
-                    shadow.Opacity = 0.1f;
-                    shadow.BlurRadius = 5;
-                    shadow.Offset = new Vector3(0, 1, 0);
-                    shadow.Mask = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255));
-
-                    var shadowVisual = compositor.CreateSpriteVisual();
-                    shadowVisual.Size = new Vector2((float)button.ActualWidth, (float)button.ActualHeight);
-                    shadowVisual.Brush = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-                    shadowVisual.Shadow = shadow;
-                    ElementCompositionPreview.SetElementChildVisual(button, shadowVisual);
-                }
+                button.Padding = new Thickness(0);
+                button.PointerEntered -= VaultIconButton_PointerEntered;
+                button.PointerExited -= VaultIconButton_PointerExited;
+                button.PointerEntered += VaultIconButton_PointerEntered;
+                button.PointerExited += VaultIconButton_PointerExited;
                 continue;
             }
 
-            AddVaultRowButtonShadows(child);
+            ApplyVaultIconHover(child);
         }
     }
+
+    private static void VaultIconButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not Button button) return;
+        button.BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"];
+        button.BorderThickness = new Thickness(1);
+    }
+
+    private static void VaultIconButton_PointerExited(object sender, PointerRoutedEventArgs e) =>
+        ((Button)sender).BorderThickness = new Thickness(0);
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {

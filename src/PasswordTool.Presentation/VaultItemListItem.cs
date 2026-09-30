@@ -19,6 +19,7 @@ public sealed record VaultItemListItem(
     bool IsFavorite,
     DateTimeOffset UpdatedAt)
 {
+    public bool IsLastInGroup { get; init; }
     public string RecoveryCodesDisplay => RecoveryCodeCount == 0 ? string.Empty : $"{RecoveryCodeCount} codes";
     public bool HasRecoveryCodes => RecoveryCodeCount > 0;
     public bool HasNotes => HideNotes || !string.IsNullOrWhiteSpace(Notes);

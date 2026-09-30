@@ -5,11 +5,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     AutomationProperties.Name="6-digit code">
     <StackPanel x:Name="DigitPanel" Orientation="Horizontal" Spacing="8">
-        <TextBox Width="42" MaxLength="6" AutomationProperties.Name="Digit 1 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
-        <TextBox Width="42" MaxLength="6" AutomationProperties.Name="Digit 2 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
-        <TextBox Width="42" MaxLength="6" AutomationProperties.Name="Digit 3 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
-        <TextBox Width="42" MaxLength="6" AutomationProperties.Name="Digit 4 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
-        <TextBox Width="42" MaxLength="6" AutomationProperties.Name="Digit 5 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
-        <TextBox Width="42" MaxLength="6" AutomationProperties.Name="Digit 6 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
+        <TextBox Width="36" Height="46" FontSize="22" TextAlignment="Center" VerticalContentAlignment="Center" MaxLength="6" AutomationProperties.Name="Digit 1 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
+        <TextBox Width="36" Height="46" FontSize="22" TextAlignment="Center" VerticalContentAlignment="Center" MaxLength="6" AutomationProperties.Name="Digit 2 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
+        <TextBox Width="36" Height="46" FontSize="22" TextAlignment="Center" VerticalContentAlignment="Center" MaxLength="6" AutomationProperties.Name="Digit 3 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
+        <TextBox Width="36" Height="46" FontSize="22" TextAlignment="Center" VerticalContentAlignment="Center" MaxLength="6" AutomationProperties.Name="Digit 4 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
+        <TextBox Width="36" Height="46" FontSize="22" TextAlignment="Center" VerticalContentAlignment="Center" MaxLength="6" AutomationProperties.Name="Digit 5 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
+        <TextBox Width="36" Height="46" FontSize="22" TextAlignment="Center" VerticalContentAlignment="Center" MaxLength="6" AutomationProperties.Name="Digit 6 of 6" TextChanged="CodeBox_TextChanged" KeyDown="CodeBox_KeyDown" />
     </StackPanel>
 </UserControl>

@@ -41,8 +41,10 @@ public sealed partial class SixDigitCodeInput : UserControl
         updating = true;
         try
         {
-            for (var i = index; i < digits.Length; i++) digits[i].Text = string.Empty;
-            for (var i = 0; i < value.Length && index + i < digits.Length; i++) digits[index + i].Text = value[i].ToString();
+            if (box.Text != value[..1]) box.Text = value[..1];
+            for (var i = 1; i < value.Length && index + i < digits.Length; i++) digits[index + i].Text = value[i].ToString();
+            for (var i = index + value.Length; i < digits.Length; i++)
+                if (digits[i].Text.Length > 0) digits[i].Text = string.Empty;
         }
         finally { updating = false; }
 
