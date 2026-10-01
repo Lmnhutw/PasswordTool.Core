@@ -24,20 +24,26 @@ public sealed partial class MainPage : Page
     private string preservedTotpSecret = string.Empty;
     private AuthenticatorSetup? settingsAuthenticatorSetup;
     private bool showingTrash;
+    private readonly Windows.UI.ViewManagement.AccessibilitySettings accessibility = new();
+    private readonly Windows.UI.ViewManagement.UISettings uiSettings = new();
 
     public MainPage()
     {
         InitializeComponent();
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        ViewModel.Vault.PropertyChanged += Vault_PropertyChanged;
         Loaded += async (_, _) =>
         {
             systemLockMonitor.LockRequired += SystemLockMonitor_LockRequired;
+            uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
+            ApplyGroupTabPlacement();
             ApplyShellState();
             FocusCurrentAuthenticationStep();
         };
         Unloaded += (_, _) =>
         {
             systemLockMonitor.LockRequired -= SystemLockMonitor_LockRequired;
+            uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
             systemLockMonitor.Stop();
         };
     }
@@ -50,7 +56,6 @@ public sealed partial class MainPage : Page
     public static HorizontalAlignment NotesRevealAlignment(bool hideNotes) => hideNotes ? HorizontalAlignment.Center : HorizontalAlignment.Right;
     public static string ItemAutomationId(string action, Guid id) => $"{action}_{id:N}";
     public static string GroupAutomationId(Guid? id) => id is null ? "Group_Ungrouped" : $"Group_{id:N}";
-    public static string GroupChevron(bool expanded) => expanded ? "\uE70D" : "\uE76C";
     public static Brush GroupBrush(string? value) => string.IsNullOrWhiteSpace(value)
         ? (Brush)Application.Current.Resources["VaultGroupBackgroundBrush"]
         : new SolidColorBrush(Windows.UI.Color.FromArgb(255,
@@ -104,14 +109,152 @@ public sealed partial class MainPage : Page
 
     private void GroupTab_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Button { Tag: VaultItemGroup { IsExpanded: false } } button)
+        if (sender is Button { Tag: VaultItemGroup group } button && group != ViewModel.Vault.SelectedGroup)
+        {
             button.Background = (Brush)Application.Current.Resources["VaultGroupHoverBrush"];
+            if (accessibility.HighContrast) button.Foreground = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemColorHighlightTextColor"]);
+        }
     }
 
     private void GroupTab_PointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Button { Tag: VaultItemGroup group } button)
-            button.Background = GroupBrush(group.AccentColor);
+        if (sender is Button button) UpdateGroupTab(button);
+    }
+
+    private void Vault_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(VaultWorkspaceViewModel.IsVerticalTabs)) ApplyGroupTabPlacement();
+        if (e.PropertyName == nameof(VaultWorkspaceViewModel.SelectedGroup))
+        {
+            UpdateGroupTabs();
+            DispatcherQueue.TryEnqueue(BringActiveGroupIntoView);
+        }
+    }
+
+    private void UiSettings_ColorValuesChanged(Windows.UI.ViewManagement.UISettings sender, object args) =>
+        DispatcherQueue.TryEnqueue(UpdateGroupTabs);
+
+    private string? DisplayGroupColor(VaultItemGroup group) =>
+        !accessibility.HighContrast && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) ? group.AccentColor : null;
+
+    private void UpdateGroupTab(Button button)
+    {
+        if (button.Tag is not VaultItemGroup group) return;
+        var selected = group == ViewModel.Vault.SelectedGroup;
+        button.Background = selected ? GroupBrush(DisplayGroupColor(group)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+        button.Foreground = selected ? GroupTextBrush(DisplayGroupColor(group)) : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+        button.BorderBrush = (Brush)Application.Current.Resources[selected ? "AccentFillColorDefaultBrush" : "CardStrokeColorDefaultBrush"];
+        button.BorderThickness = ViewModel.Vault.IsVerticalTabs ? new Thickness(1, 1, selected ? 0 : 1, 1) : new Thickness(1, 1, 1, selected ? 0 : 1);
+        button.CornerRadius = ViewModel.Vault.IsVerticalTabs ? new CornerRadius(6, 0, 0, 6) : new CornerRadius(6, 6, 0, 0);
+        button.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetItemStatus(button, selected ? "Selected" : "Not selected");
+    }
+
+    private void UpdateGroupTabs()
+    {
+        if (GroupTabsRepeater is null) return;
+        UpdateGroupTab(AllGroupTab);
+        for (var index = 0; index < ViewModel.Vault.GroupTabs.Count; index++)
+            if (GroupTabsRepeater.TryGetElement(index) is Button button) UpdateGroupTab(button);
+        GroupTableFrame.Background = GroupBrush(DisplayGroupColor(ViewModel.Vault.SelectedGroup));
+    }
+
+    private void GroupTab_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button) UpdateGroupTab(button);
+    }
+
+    private void GroupTab_ActualThemeChanged(FrameworkElement sender, object args) => UpdateGroupTabs();
+
+    private void GroupTabsRepeater_ElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
+    {
+        if (args.Element is Button button) UpdateGroupTab(button);
+    }
+
+    private void GroupTabPlacement_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ViewModel.Vault.IsVerticalTabs = GroupTabPlacement.SelectedIndex == 1;
+    }
+
+    private void ApplyGroupTabPlacement()
+    {
+        if (GroupTabStrip is null) return;
+        var vertical = ViewModel.Vault.IsVerticalTabs;
+        Grid.SetRow(GroupTableFrame, vertical ? 0 : 1);
+        Grid.SetColumn(GroupTableFrame, vertical ? 1 : 0);
+        Grid.SetRowSpan(GroupTableFrame, vertical ? 2 : 1);
+        Grid.SetColumnSpan(GroupTableFrame, vertical ? 1 : 2);
+        Grid.SetRowSpan(GroupTabStrip, vertical ? 2 : 1);
+        Grid.SetColumnSpan(GroupTabStrip, vertical ? 1 : 2);
+        GroupTabStrip.Width = vertical ? 180 : double.NaN;
+        GroupTabStrip.Margin = vertical ? new Thickness(0, 12, -1, 12) : new Thickness(12, 0, 12, -1);
+        Grid.SetColumnSpan(AllGroupTab, vertical ? 4 : 1);
+        AllGroupTab.HorizontalAlignment = vertical ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+        Grid.SetRow(GroupTabsScroller, vertical ? 1 : 0);
+        Grid.SetColumn(GroupTabsScroller, vertical ? 0 : 2);
+        Grid.SetColumnSpan(GroupTabsScroller, vertical ? 4 : 1);
+        GroupTabsScroller.Margin = vertical ? new Thickness(0, 4, 0, 0) : new Thickness(4, 0, 0, 0);
+        GroupTabsScroller.HorizontalScrollMode = vertical ? ScrollMode.Disabled : ScrollMode.Enabled;
+        GroupTabsScroller.HorizontalScrollBarVisibility = vertical ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Hidden;
+        GroupTabsScroller.VerticalScrollMode = vertical ? ScrollMode.Enabled : ScrollMode.Disabled;
+        GroupTabsScroller.VerticalScrollBarVisibility = vertical ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        ((StackLayout)GroupTabsRepeater.Layout).Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
+        GroupTabsScroller.ChangeView(0, 0, null, disableAnimation: true);
+        UpdateGroupTabs();
+        DispatcherQueue.TryEnqueue(BringActiveGroupIntoView);
+    }
+
+    private void BringActiveGroupIntoView()
+    {
+        var index = ViewModel.Vault.GroupTabs.IndexOf(ViewModel.Vault.SelectedGroup);
+        if (index >= 0)
+        {
+            var element = GroupTabsRepeater.GetOrCreateElement(index);
+            GroupTabsRepeater.UpdateLayout();
+            element.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true });
+        }
+        UpdateTabOverflow();
+    }
+
+    private void UpdateTabOverflow()
+    {
+        if (GroupTabsScroller is null) return;
+        var show = !ViewModel.Vault.IsVerticalTabs && GroupTabsScroller.ScrollableWidth > 1;
+        PreviousGroupTab.Visibility = NextGroupTab.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        PreviousGroupTab.IsEnabled = GroupTabsScroller.HorizontalOffset > 1;
+        NextGroupTab.IsEnabled = GroupTabsScroller.HorizontalOffset < GroupTabsScroller.ScrollableWidth - 1;
+    }
+
+    private void GroupTabsScroller_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e) => UpdateTabOverflow();
+    private void GroupTabsScroller_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateTabOverflow();
+    private void GroupTabStrip_SizeChanged(object sender, SizeChangedEventArgs e) => DispatcherQueue.TryEnqueue(BringActiveGroupIntoView);
+    private void PreviousGroupTab_Click(object sender, RoutedEventArgs e) => ScrollGroupTabs(-1);
+    private void NextGroupTab_Click(object sender, RoutedEventArgs e) => ScrollGroupTabs(1);
+    private void ScrollGroupTabs(int direction) => GroupTabsScroller.ChangeView(
+        Math.Clamp(GroupTabsScroller.HorizontalOffset + direction * Math.Max(120, GroupTabsScroller.ViewportWidth * 0.75), 0, GroupTabsScroller.ScrollableWidth), null, null);
+    private void ClearVaultFilters_Click(object sender, RoutedEventArgs e) => ViewModel.Vault.ResetToDefaultView();
+
+    private void GroupTab_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: VaultItemGroup group }) return;
+        var vertical = ViewModel.Vault.IsVerticalTabs;
+        var index = group.IsAll ? 0 : ViewModel.Vault.GroupTabs.IndexOf(group) + 1;
+        var next = e.Key switch
+        {
+            Windows.System.VirtualKey.Home => 0,
+            Windows.System.VirtualKey.End => ViewModel.Vault.GroupTabs.Count,
+            Windows.System.VirtualKey.Left when !vertical => index - 1,
+            Windows.System.VirtualKey.Right when !vertical => index + 1,
+            Windows.System.VirtualKey.Up when vertical => index - 1,
+            Windows.System.VirtualKey.Down when vertical => index + 1,
+            _ => -1
+        };
+        if (next < 0 || next > ViewModel.Vault.GroupTabs.Count) return;
+        e.Handled = true;
+        ViewModel.Vault.SelectGroup(next == 0 ? ViewModel.Vault.AllGroup : ViewModel.Vault.GroupTabs[next - 1]);
+        var target = next == 0 ? AllGroupTab : (Button)GroupTabsRepeater.GetOrCreateElement(next - 1);
+        target.Focus(FocusState.Keyboard);
+        BringActiveGroupIntoView();
     }
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
@@ -416,15 +559,13 @@ public sealed partial class MainPage : Page
 
     private void GroupHeaderButton_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is VaultItemGroup group) ViewModel.Vault.ToggleGroup(group);
-        if (sender is Button { Tag: VaultItemGroup selected } button)
-            button.Background = GroupBrush(selected.AccentColor);
+        if ((sender as FrameworkElement)?.Tag is VaultItemGroup group) ViewModel.Vault.SelectGroup(group);
     }
 
     private async void RenameGroupMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is not VaultItemGroup { Id: { } id } group) return;
-        var name = await PromptAsync("Rename group", "Group name", group.Name);
+        var name = await PromptAsync("Rename group", "Group name", group.Name, "Confirm");
         if (name is not null) await ViewModel.UpdateGroupAsync(id, name, group.AccentColor);
     }
 
@@ -440,11 +581,18 @@ public sealed partial class MainPage : Page
         if ((sender as FrameworkElement)?.Tag is VaultItemGroup { Id: { } id } group) await ViewModel.DeleteGroupAsync(id, group.Name);
     }
 
-    private async Task<string?> PromptAsync(string title, string header, string value)
+    private async Task<string?> PromptAsync(string title, string header, string value, string primaryText = "Save")
     {
         var input = new TextBox { Header = header, Text = value, MinWidth = 320 };
-        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = input, PrimaryButtonText = "Save", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary ? input.Text : null;
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = input, PrimaryButtonText = primaryText, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        if (primaryText == "Confirm")
+        {
+            input.MaxLength = 100;
+            dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(input.Text);
+            input.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(input.Text);
+        }
+        dialog.Opened += (_, _) => { input.Focus(FocusState.Programmatic); input.SelectAll(); };
+        return await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) == ContentDialogResult.Primary ? input.Text : null;
     }
 
     private async Task OpenEditorAsync(Guid itemId)
