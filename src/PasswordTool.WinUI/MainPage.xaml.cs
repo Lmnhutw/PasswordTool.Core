@@ -24,17 +24,29 @@ public sealed partial class MainPage : Page
     private string preservedTotpSecret = string.Empty;
     private AuthenticatorSetup? settingsAuthenticatorSetup;
     private bool showingTrash;
+    private readonly DispatcherTimer signInTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private bool hadSignIn;
     private readonly Windows.UI.ViewManagement.AccessibilitySettings accessibility = new();
     private readonly Windows.UI.ViewManagement.UISettings uiSettings = new();
 
     public MainPage()
     {
         InitializeComponent();
+        signInTimer.Tick += (_, _) =>
+        {
+            if (ViewModel.IsSignedIn) hadSignIn = true;
+            else if (hadSignIn)
+            {
+                hadSignIn = false;
+                SystemLockMonitor_LockRequired(this, EventArgs.Empty);
+            }
+        };
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         ViewModel.Vault.PropertyChanged += Vault_PropertyChanged;
         Loaded += async (_, _) =>
         {
             systemLockMonitor.LockRequired += SystemLockMonitor_LockRequired;
+            signInTimer.Start();
             uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             ApplyGroupTabPlacement();
             ApplyShellState();
@@ -45,6 +57,7 @@ public sealed partial class MainPage : Page
             systemLockMonitor.LockRequired -= SystemLockMonitor_LockRequired;
             uiSettings.ColorValuesChanged -= UiSettings_ColorValuesChanged;
             systemLockMonitor.Stop();
+            signInTimer.Stop();
         };
     }
 
@@ -291,11 +304,12 @@ public sealed partial class MainPage : Page
         {
             var password = MasterPasswordInput.Password;
             if (!await ViewModel.ValidateMasterPasswordAsync(password)) return;
-            var code = await dialogs.PromptTotpAsync(
-                "Unlock vault", "Enter the current 6-digit code from Google Authenticator.");
+            var code = ViewModel.IsSignedIn ? string.Empty : await dialogs.PromptTotpAsync(
+                "Sign in", "Enter the current 6-digit code from Google Authenticator.");
             if (code is null) return;
 
             await ViewModel.UnlockAsync(password, code);
+            hadSignIn = ViewModel.IsSignedIn;
 
             if (ViewModel.IsUnlocked)
             {
@@ -431,7 +445,7 @@ public sealed partial class MainPage : Page
     {
         DispatcherQueue.TryEnqueue(async () =>
         {
-            if (!ViewModel.IsUnlocked || Interlocked.Exchange(ref lifecycleLockInProgress, 1) != 0) return;
+            if (Interlocked.Exchange(ref lifecycleLockInProgress, 1) != 0) return;
             try
             {
                 systemLockMonitor.Stop();
@@ -462,9 +476,19 @@ public sealed partial class MainPage : Page
         CreateMasterPasswordPanel.Visibility = Visibility.Collapsed;
         SetupAuthenticatorPanel.Visibility = Visibility.Collapsed;
         UnlockPanel.Visibility = Visibility.Collapsed;
+        UnlockHeading.Text = ViewModel.IsSignedIn ? "Vault locked" : "Sign in";
+        UnlockDescription.Text = ViewModel.IsSignedIn
+            ? "Enter your Master Password to unlock the vault."
+            : "Enter your Master Password and Google Authenticator code to sign in.";
+        UnlockButton.Content = ViewModel.IsSignedIn ? "Unlock" : "Sign in";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UnlockButton, ViewModel.IsSignedIn ? "Unlock vault" : "Sign in");
 
         if (!ViewModel.IsUnlocked)
         {
+            ClearEditor();
+            ClearSettingsInputs();
+            ClearBackupInputs();
+            MasterPasswordInput.Password = string.Empty;
             App.Services.GetRequiredService<DialogLifetime>().DismissAll();
             switch (ViewModel.FlowState)
             {
@@ -624,8 +648,9 @@ public sealed partial class MainPage : Page
 
     private async Task OpenEditorAsync(Guid itemId)
     {
+        var version = ViewModel.LifecycleVersion;
         var item = await ViewModel.GetItemForEditingAsync(itemId);
-        if (item is null) return;
+        if (item is null || !ViewModel.IsCurrentUnlock(version)) return;
 
         editingItemId = item.Id;
         EditorTitle.Text = "Edit item";
@@ -685,8 +710,9 @@ public sealed partial class MainPage : Page
 
     private async void GeneratePasswordButton_Click(object sender, RoutedEventArgs e)
     {
+        var version = ViewModel.LifecycleVersion;
         var generated = await passwordGeneratorDialog.ShowAsync();
-        if (generated is not null) EditorPassword.Password = generated;
+        if (generated is not null && ViewModel.IsCurrentUnlock(version)) EditorPassword.Password = generated;
     }
 
     private void ClearEditor()
@@ -866,9 +892,12 @@ public sealed partial class MainPage : Page
 
     private async void PrepareAuthenticatorResetButton_Click(object sender, RoutedEventArgs e)
     {
+        var version = ViewModel.LifecycleVersion;
         settingsAuthenticatorSetup = ViewModel.Settings.PrepareAuthenticator();
         SettingsAuthenticatorSecret.Text = settingsAuthenticatorSetup.SecretBase32;
-        SettingsAuthenticatorQr.Source = await CreateQrBitmapAsync(settingsAuthenticatorSetup.OtpAuthUri);
+        var bitmap = await CreateQrBitmapAsync(settingsAuthenticatorSetup.OtpAuthUri);
+        if (!ViewModel.IsCurrentUnlock(version)) return;
+        SettingsAuthenticatorQr.Source = bitmap;
         SettingsAuthenticatorQr.Visibility = Visibility.Visible;
         AuthenticatorResetCode.FocusFirst();
     }

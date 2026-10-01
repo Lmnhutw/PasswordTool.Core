@@ -24,11 +24,17 @@ public sealed partial class BackupViewModel(
     [ObservableProperty] public partial string ConfirmBackupPassword { get; set; } = string.Empty;
     [ObservableProperty] public partial VaultSnapshotInfo? SelectedSnapshot { get; set; }
 
+    private long actionVersion;
+
     public ObservableCollection<VaultSnapshotInfo> Snapshots { get; } = [];
 
     public async Task LoadAsync()
     {
-        var snapshots = await flow.GetSnapshotsAsync();
+        var version = flow.LifecycleVersion;
+        IReadOnlyList<VaultSnapshotInfo> snapshots;
+        try { snapshots = await flow.GetSnapshotsAsync(); }
+        catch (OperationCanceledException) { return; }
+        if (!flow.IsCurrentUnlock(version)) return;
         Snapshots.Clear();
         foreach (var snapshot in snapshots) Snapshots.Add(snapshot);
     }
@@ -50,6 +56,7 @@ public sealed partial class BackupViewModel(
         await RunAsync(async () =>
         {
             var path = await filePicker.PickSavePathAsync($"PasswordTool-backup-{DateTime.Now:yyyyMMdd-HHmm}.json");
+            EnsureCurrent();
             if (path is null) return;
             try
             {
@@ -69,10 +76,12 @@ public sealed partial class BackupViewModel(
         await RunAsync(async () =>
         {
             var path = await filePicker.PickOpenPathAsync();
+            EnsureCurrent();
             if (path is null) return;
             try
             {
                 var inspection = await flow.VerifyExternalBackupAsync(path, BackupPassword);
+            EnsureCurrent();
                 SelectedBackupPath = path;
                 Summary = FormatInspection(inspection);
                 ShowStatus("Backup verified. Check it again later to confirm it is still readable.");
@@ -90,9 +99,11 @@ public sealed partial class BackupViewModel(
         await RunAsync(async () =>
         {
             var path = await filePicker.PickOpenPathAsync();
+            EnsureCurrent();
             if (path is null) return;
             CanImportBackup = false;
             var plan = await flow.PreviewBackupImportAsync(path, BackupPassword, string.Empty);
+            EnsureCurrent();
             SelectedBackupPath = path;
             Summary = $"{plan.NewItemCount:N0} new · {plan.DuplicateCount:N0} duplicate · {plan.ConflictCount:N0} conflict";
             CanImportBackup = plan.NewItemCount > 0;
@@ -106,7 +117,9 @@ public sealed partial class BackupViewModel(
         await RunAsync(async () =>
         {
             var count = await flow.ImportBackupAsync(SelectedBackupPath, BackupPassword, string.Empty);
+            EnsureCurrent();
             await vault.RefreshAsync();
+            EnsureCurrent();
             CanImportBackup = false;
             ShowStatus($"Imported {count:N0} new item{(count == 1 ? string.Empty : "s")}.");
         });
@@ -117,8 +130,10 @@ public sealed partial class BackupViewModel(
         await RunAsync(async () =>
         {
             var path = await filePicker.PickOpenPathAsync();
+            EnsureCurrent();
             if (path is null) return;
             var plan = await flow.PreviewCsvImportAsync(path, string.Empty);
+            EnsureCurrent();
             SelectedCsvPath = path;
             Summary = $"{plan.NewItemCount:N0} new · {plan.DuplicateCount:N0} duplicate";
             CanImportCsv = plan.NewItemCount > 0;
@@ -132,7 +147,9 @@ public sealed partial class BackupViewModel(
         await RunAsync(async () =>
         {
             var count = await flow.ImportCsvAsync(SelectedCsvPath, string.Empty);
+            EnsureCurrent();
             await vault.RefreshAsync();
+            EnsureCurrent();
             CanImportCsv = false;
             ShowStatus($"Imported {count:N0} new item{(count == 1 ? string.Empty : "s")}.");
         });
@@ -156,6 +173,7 @@ public sealed partial class BackupViewModel(
     {
         if (IsBusy) return;
         IsBusy = true;
+        actionVersion = flow.LifecycleVersion;
         try
         {
             await action();
@@ -172,10 +190,24 @@ public sealed partial class BackupViewModel(
 
     partial void OnBackupPasswordChanged(string value) => CanImportBackup = false;
 
+    public void Clear()
+    {
+        BackupPassword = ConfirmBackupPassword = string.Empty;
+        SelectedBackupPath = SelectedCsvPath = Summary = StatusMessage = string.Empty;
+        CanImportBackup = CanImportCsv = IsStatusOpen = false;
+        SelectedSnapshot = null;
+        Snapshots.Clear();
+    }
+
     private void ShowStatus(string message)
     {
         StatusMessage = message;
         IsStatusOpen = true;
+    }
+
+    private void EnsureCurrent()
+    {
+        if (!flow.IsCurrentUnlock(actionVersion)) throw new OperationCanceledException("The vault was locked or the sign-in session expired.");
     }
 
     private static string FormatInspection(VaultBackupInspection inspection) =>

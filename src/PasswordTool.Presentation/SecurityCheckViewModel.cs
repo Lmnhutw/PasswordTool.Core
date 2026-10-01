@@ -19,10 +19,12 @@ public sealed partial class SecurityCheckViewModel(
     public async Task RunAsync()
     {
         IsBusy = true;
+        var version = flow.LifecycleVersion;
         IsErrorOpen = false;
         try
         {
             var findings = await flow.GetSecurityFindingsAsync(string.Empty);
+            if (!flow.IsCurrentUnlock(version)) return;
             Findings.Clear();
             foreach (var finding in findings) Findings.Add(finding);
             var affected = findings.Select(finding => finding.ItemId).Distinct().Count();
@@ -41,4 +43,12 @@ public sealed partial class SecurityCheckViewModel(
         }
     }
 
+    public void Clear()
+    {
+        Findings.Clear();
+        SelectedFinding = null;
+        Summary = "Run a local scan to find weak, reused, and old passwords.";
+        ErrorMessage = string.Empty;
+        IsErrorOpen = false;
+    }
 }

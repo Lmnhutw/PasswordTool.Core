@@ -11,6 +11,32 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
     private readonly string tempDirectory = Path.Combine(Path.GetTempPath(), "PasswordTool.Security.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public void Vault_lock_and_reunlock_preserve_the_original_sign_in_deadline()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        using var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp, utcNow: () => now);
+        const string password = "correct horse battery staple";
+        vault.InitializeNewVault(password, secret, ComputeTotp(secret));
+        vault.AddItem(new VaultItem { Title = "Email", Password = "secret" });
+        vault.LockVault();
+        Assert.True(vault.IsSignInSessionActive);
+        Assert.Throws<InvalidOperationException>(() => vault.GetItems());
+        Assert.False(vault.UnlockWithMasterPassword("wrong password").Success);
+        Assert.True(vault.IsSignInSessionActive);
+        now = now.AddHours(4);
+        Assert.True(vault.UnlockWithMasterPassword(password).Success);
+        Assert.Single(vault.GetItems());
+        Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
+        now = now.AddHours(1);
+        Assert.False(vault.IsSignInSessionActive);
+        Assert.Throws<InvalidOperationException>(() => vault.GetItems());
+        vault.ClearSession();
+        Assert.False(vault.IsSignInSessionActive);
+    }
+
+    [Fact]
     public void New_configs_use_argon2id_and_legacy_pbkdf2_configs_remain_unlockable()
     {
         var encryption = new EncryptionService();
@@ -42,6 +68,26 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         CryptographicOperations.ZeroMemory(unlockedKey);
         Assert.Equal("JBSWY3DPEHPK3PXP", secret);
         Assert.True(MasterPasswordService.NeedsKdfUpgrade(legacy));
+    }
+
+    [Fact]
+    public void Expiry_during_master_password_unlock_does_not_restore_vault_keys()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expireDuringUnlock = false;
+        var clockReads = 0;
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        using var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp,
+            utcNow: () => expireDuringUnlock && ++clockReads > 1 ? now.AddHours(5) : now);
+        const string password = "correct horse battery staple";
+        vault.InitializeNewVault(password, secret, ComputeTotp(secret));
+        vault.LockVault();
+        expireDuringUnlock = true;
+        Assert.False(vault.UnlockWithMasterPassword(password).Success);
+        Assert.False(vault.IsSignInSessionActive);
+        Assert.False(vault.IsVaultUnlocked);
+        Assert.Throws<InvalidOperationException>(() => vault.GetItems());
     }
 
     [Fact]

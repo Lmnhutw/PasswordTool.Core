@@ -64,6 +64,9 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] public partial AuthenticatorSetup? PendingAuthenticatorSetup { get; set; }
 
     public bool IsUnlocked => FlowState == AppFlowState.Unlocked;
+    public bool IsSignedIn => flow.IsSignedIn;
+    public long LifecycleVersion => flow.LifecycleVersion;
+    public bool IsCurrentUnlock(long version) => flow.IsCurrentUnlock(version) && IsUnlocked;
     public bool HasPartialStorage => flow.HasPartialStorage;
     public bool IsVaultRoute => CurrentRoute == AppRoute.Vault;
     public bool IsHashToolRoute => CurrentRoute == AppRoute.HashTool;
@@ -93,7 +96,8 @@ public sealed partial class ShellViewModel : ObservableObject
             return;
         }
 
-        await CompleteUnlockAsync(result);
+        try { await CompleteUnlockAsync(result); }
+        catch (OperationCanceledException) { }
     }
 
     public void BeginNewVault()
@@ -202,6 +206,12 @@ public sealed partial class ShellViewModel : ObservableObject
     private async Task LockAsync()
     {
         IsBackupReminderOpen = false;
+        FlowState = AppFlowState.Unlock;
+        Vault.Clear();
+        Trash.Clear();
+        SecurityCheck.Clear();
+        Backup.Clear();
+        Settings.Clear();
         await flow.LockAsync();
         Vault.Clear();
         await clipboard.ClearOwnedValueAsync();
@@ -211,10 +221,19 @@ public sealed partial class ShellViewModel : ObservableObject
         StatusMessage = string.Empty;
         IsStatusOpen = false;
         PendingAuthenticatorSetup = null;
+        OnPropertyChanged(nameof(IsSignedIn));
+    }
+
+    [RelayCommand]
+    private async Task LogoutAsync()
+    {
+        await flow.LogoutAsync();
+        await LockAsync();
     }
 
     public void Navigate(AppRoute route)
     {
+        if (!IsUnlocked || !IsSignedIn) return;
         navigation.Navigate(route);
         CurrentRoute = navigation.CurrentRoute;
         OnPropertyChanged(nameof(IsVaultRoute));
@@ -231,9 +250,11 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task<VaultItem?> GetItemForEditingAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         try
         {
-            return await flow.GetItemForEditingAsync(itemId, string.Empty);
+            var item = await flow.GetItemForEditingAsync(itemId, string.Empty);
+            return IsCurrentUnlock(version) ? item : null;
         }
         catch (Exception exception)
         {
@@ -244,12 +265,14 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task<bool> SaveItemAsync(VaultItemEditorInput input)
     {
+        var version = LifecycleVersion;
         try
         {
             var item = input.ToVaultItem();
             if (input.Id is null) await flow.AddItemAsync(item);
             else await flow.UpdateItemAsync(item);
             await Vault.RefreshAsync();
+            if (!IsCurrentUnlock(version)) return false;
             Navigate(AppRoute.Vault);
             ClearAuthenticationStatus();
             if (input.Id is null && !backupReminderOffered)
@@ -318,9 +341,11 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task CopyUsernameAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         try
         {
-            await clipboard.CopyAsync(await flow.GetUsernameAsync(itemId));
+            var value = await flow.GetUsernameAsync(itemId);
+            if (IsCurrentUnlock(version)) await clipboard.CopyAsync(value);
         }
         catch (Exception exception)
         {
@@ -330,9 +355,11 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task RevealPasswordAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         try
         {
-            await dialogs.ShowSecretAsync("Password", await flow.GetPasswordAsync(itemId, string.Empty), multiline: false);
+            var value = await flow.GetPasswordAsync(itemId, string.Empty);
+            if (IsCurrentUnlock(version)) await dialogs.ShowSecretAsync("Password", value, multiline: false);
         }
         catch (Exception exception)
         {
@@ -342,9 +369,11 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task RevealRecoveryCodesAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         try
         {
             var codes = await flow.GetRecoveryCodesAsync(itemId, string.Empty);
+            if (!IsCurrentUnlock(version)) return;
             await dialogs.ShowSecretAsync("Recovery codes", string.Join(Environment.NewLine, codes), multiline: true);
         }
         catch (Exception exception)
@@ -355,6 +384,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task RevealNotesAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         var item = Vault.Items.FirstOrDefault(candidate => candidate.Id == itemId);
         if (item is null || !item.HasNotes) return;
 
@@ -368,6 +398,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
         try
         {
+            if (!IsCurrentUnlock(version)) return;
             await dialogs.ShowSecretAsync("Notes", notes, multiline: true);
         }
         catch (Exception exception)
@@ -378,9 +409,11 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task CopyPasswordAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         try
         {
-            await clipboard.CopyAsync(await flow.GetPasswordAsync(itemId, string.Empty));
+            var value = await flow.GetPasswordAsync(itemId, string.Empty);
+            if (IsCurrentUnlock(version)) await clipboard.CopyAsync(value);
         }
         catch (Exception exception)
         {
@@ -390,10 +423,12 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task ViewPasswordHistoryAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         if (Vault.Items.All(item => item.Id != itemId || !item.HasPassword)) return;
         try
         {
             var history = await flow.GetPasswordHistoryAsync(itemId, string.Empty);
+            if (!IsCurrentUnlock(version)) return;
             var text = history.Count == 0
                 ? "No previous passwords are stored for this item."
                 : string.Join(Environment.NewLine + Environment.NewLine, history.Select(entry =>
@@ -410,9 +445,11 @@ public sealed partial class ShellViewModel : ObservableObject
 
     private async Task CompleteUnlockAsync(VaultUnlockResult result)
     {
+        var version = LifecycleVersion;
         StatusMessage = result.Message;
         IsStatusOpen = !string.IsNullOrWhiteSpace(result.Message);
         InactivityTimeout = await flow.GetInactivityTimeoutAsync();
+        if (!IsCurrentUnlock(version)) return;
         VaultOpenDuration = await flow.GetVaultOpenDurationAsync();
         await Vault.RefreshAsync();
     }

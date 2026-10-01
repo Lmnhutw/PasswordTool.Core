@@ -55,11 +55,11 @@ PasswordTool releases are self-contained: an end user does not need to install .
 5. Store the Master Password safely and make sure the Authenticator entry is backed up according to your authenticator application's recovery/export process. Keep those recovery paths separate. PasswordTool has no server-side reset, recovery email, administrator override, or backdoor.
 6. Add a test item, lock the vault, unlock it again, and create an encrypted external backup before relying on the vault for important data.
 
-Unlock the vault with both the Master Password and the current 6-digit Google Authenticator code. PasswordTool does not offer Authenticator-only sign-in. Enter codes in the six digit boxes; pasting a six-digit code is supported.
+Sign in with both the Master Password and the current 6-digit Google Authenticator code. Within that fixed five-hour session, unlocking a locked vault requires only the Master Password and never extends the session. Restarting the application requires a fresh sign-in. PasswordTool does not offer Authenticator-only sign-in. Enter codes in the six digit boxes; pasting a six-digit code is supported.
 
 ## Everyday use
 
-1. **Unlock:** enter the Master Password and current PasswordTool Authenticator code.
+1. **Sign in / unlock:** initial sign-in requires Master Password and Authenticator code; subsequent unlocks within the same session require Master Password only.
 2. **Add and organize:** create Password or Recovery-code entries and optionally assign favorites, folders, tags, URLs, notes, or a website-specific TOTP secret.
 3. **Reveal or copy a secret:** no second Authenticator prompt is needed while the sign-in session is active.
 4. **Lock:** Lock keeps PasswordTool open and locks only the vault. The vault also locks after one minute of inactivity by default, or when Windows locks/disconnects, suspends, or resumes. A sign-in session expires after five hours.

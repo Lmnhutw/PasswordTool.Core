@@ -41,10 +41,14 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         IsBusy = true;
+        var version = flow.LifecycleVersion;
         try
         {
-            allItems = await flow.GetListItemsAsync(cancellationToken);
-            groups = await flow.GetGroupsAsync(cancellationToken);
+            var loadedItems = await flow.GetListItemsAsync(cancellationToken);
+            var loadedGroups = await flow.GetGroupsAsync(cancellationToken);
+            if (!flow.IsCurrentUnlock(version)) return;
+            allItems = loadedItems;
+            groups = loadedGroups;
             RefreshGroupOptions();
             RefreshGroupTabs();
             ApplyFilter();

@@ -15,9 +15,11 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
     public async Task LoadAsync()
     {
         IsBusy = true;
+        var version = flow.LifecycleVersion;
         try
         {
             var snapshot = await flow.GetSettingsAsync();
+            if (!flow.IsCurrentUnlock(version)) return;
             InactivityTimeoutMinutes = snapshot.InactivityTimeoutMinutes;
             NeedsKdfUpgrade = snapshot.NeedsKdfUpgrade;
             BackupHealthText = $"Last external backup: {FormatDate(snapshot.LastExternalBackupAt)} · " +
@@ -35,10 +37,9 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
 
     public async Task<bool> SaveAsync(string masterPassword)
     {
-        var result = await flow.UpdateSettingsAsync(
+        return await CompleteAsync(flow.UpdateSettingsAsync(
             masterPassword,
-            (int)InactivityTimeoutMinutes);
-        return Complete(result, "Security settings saved.");
+            (int)InactivityTimeoutMinutes), "Security settings saved.");
     }
 
     public async Task<bool> ChangeMasterPasswordAsync(string currentPassword, string newPassword, string confirmation)
@@ -49,14 +50,12 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
             return false;
         }
 
-        var result = await flow.ChangeMasterPasswordAsync(currentPassword, newPassword);
-        return Complete(result, "Master Password changed.");
+        return await CompleteAsync(flow.ChangeMasterPasswordAsync(currentPassword, newPassword), "Master Password changed.");
     }
 
     public async Task<bool> UpgradeKdfAsync(string masterPassword)
     {
-        var result = await flow.UpgradeKdfAsync(masterPassword);
-        var success = Complete(result, "The Master Password KDF is current.");
+        var success = await CompleteAsync(flow.UpgradeKdfAsync(masterPassword), "The Master Password KDF is current.");
         if (success) NeedsKdfUpgrade = false;
         return success;
     }
@@ -65,12 +64,15 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
 
     public async Task<bool> ResetAuthenticatorAsync(string masterPassword, AuthenticatorSetup setup, string code)
     {
-        var result = await flow.ResetAuthenticatorAsync(masterPassword, setup, code);
-        return Complete(result, "Authenticator reset.");
+        return await CompleteAsync(flow.ResetAuthenticatorAsync(masterPassword, setup, code), "Authenticator reset.");
     }
 
-    private bool Complete(OperationResult result, string successMessage)
+    private async Task<bool> CompleteAsync(Task<OperationResult> operation, string successMessage)
     {
+        OperationResult result;
+        try { result = await operation; }
+        catch (OperationCanceledException) { return false; }
+        catch (Exception exception) { ShowError(errorMapper.Map(exception)); return false; }
         StatusMessage = result.Success ? successMessage : result.Message;
         IsStatusOpen = true;
         return result.Success;
@@ -83,4 +85,10 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
     }
 
     private static string FormatDate(DateTimeOffset? value) => value?.ToLocalTime().ToString("g") ?? "not available";
+
+    public void Clear()
+    {
+        BackupHealthText = StatusMessage = string.Empty;
+        IsStatusOpen = false;
+    }
 }

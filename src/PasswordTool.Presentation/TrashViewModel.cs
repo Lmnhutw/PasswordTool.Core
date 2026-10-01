@@ -16,9 +16,11 @@ public sealed partial class TrashViewModel(
 
     public async Task LoadAsync()
     {
+        var version = flow.LifecycleVersion;
         try
         {
             var items = await flow.GetDeletedItemsAsync();
+            if (!flow.IsCurrentUnlock(version)) return;
             Items.Clear();
             foreach (var item in items) Items.Add(item);
         }
@@ -62,5 +64,13 @@ public sealed partial class TrashViewModel(
     {
         ErrorMessage = errorMapper.Map(exception);
         IsErrorOpen = true;
+    }
+
+    public void Clear()
+    {
+        Items.Clear();
+        SelectedItem = null;
+        ErrorMessage = string.Empty;
+        IsErrorOpen = false;
     }
 }

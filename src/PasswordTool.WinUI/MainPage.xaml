@@ -139,8 +139,8 @@
 
                         <StackPanel x:Name="UnlockPanel" Spacing="16" Visibility="Collapsed">
                             <FontIcon HorizontalAlignment="Left" FontSize="36" Glyph="&#xE72E;" />
-                            <TextBlock Text="Unlock vault" Style="{StaticResource PasswordToolPageTitleStyle}" />
-                            <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Enter your Master Password and Google Authenticator code to unlock the vault." TextWrapping="Wrap" />
+                            <TextBlock x:Name="UnlockHeading" Text="Sign in" Style="{StaticResource PasswordToolPageTitleStyle}" />
+                            <TextBlock x:Name="UnlockDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Enter your Master Password and Google Authenticator code to sign in." TextWrapping="Wrap" />
                             <PasswordBox x:Name="MasterPasswordInput" AutomationProperties.AutomationId="TxtMasterPassword" Header="Master Password" AutomationProperties.Name="Master Password" KeyDown="MasterPasswordInput_KeyDown" />
                             <Button x:Name="UnlockButton" Style="{StaticResource AccentButtonStyle}" AutomationProperties.AutomationId="BtnUnlock" HorizontalAlignment="Stretch" AutomationProperties.Name="Unlock vault" Click="UnlockButton_Click" Content="Unlock" />
                             <Expander Header="Forgot your Master Password?" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">

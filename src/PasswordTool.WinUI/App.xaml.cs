@@ -94,8 +94,8 @@ public partial class App : Application
         {
             if (Services is not null)
             {
-                await Services.GetRequiredService<ISensitiveClipboardService>().ClearOwnedValueAsync();
-                Services.GetService<PasswordTool.Core.Services.VaultService>()?.ClearSession();
+                try { await Services.GetRequiredService<ISensitiveClipboardService>().ClearOwnedValueAsync(); }
+                finally { await Services.GetRequiredService<AppFlowCoordinator>().LogoutAsync(); }
             }
         }
         catch
@@ -111,8 +111,9 @@ public partial class App : Application
     {
         try
         {
-            await Services.GetRequiredService<ISensitiveClipboardService>().ClearOwnedValueAsync();
-            Services.GetRequiredService<PasswordTool.Core.Services.VaultService>().ClearSession();
+            Services.GetRequiredService<DialogLifetime>().DismissAll();
+            try { await Services.GetRequiredService<ISensitiveClipboardService>().ClearOwnedValueAsync(); }
+            finally { await Services.GetRequiredService<AppFlowCoordinator>().LogoutAsync(); }
         }
         catch
         {

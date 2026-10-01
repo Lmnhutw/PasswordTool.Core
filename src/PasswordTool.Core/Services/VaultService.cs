@@ -62,6 +62,7 @@ public sealed class VaultService : IDisposable
     public string TrustedUnlockTokenPath => storageService.TrustedUnlockTokenPath;
 
     public bool IsSignInSessionActive => signInSessionExpiresAt is { } expiresAt && expiresAt > utcNow();
+    public bool IsVaultUnlocked => IsSignInSessionActive && isVaultOpen && encryptionKey is not null;
 
     public bool IsGoogleAuthenticatorConfigured
     {
@@ -293,7 +294,8 @@ public sealed class VaultService : IDisposable
     public VaultUnlockResult UnlockWithMasterPassword(string masterPassword)
     {
         ThrowIfDisposed();
-        ClearSession();
+        var signedIn = IsSignInSessionActive;
+        LockVault();
         byte[]? unlockedKey = null;
         try
         {
@@ -334,6 +336,11 @@ public sealed class VaultService : IDisposable
             totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret) ? null : decryptedTotpSecret;
             vaultData = decryptedVault;
             isVaultOpen = true;
+            if (signedIn && !IsSignInSessionActive)
+            {
+                ClearSession();
+                return new VaultUnlockResult(VaultUnlockStatus.Failed, "The sign-in session expired. Sign in again.");
+            }
             PurgeExpiredTrash();
             if (encryptionUsesEnvelope) SaveTrustedUnlockToken(config);
             return new VaultUnlockResult(status, message);
@@ -341,7 +348,7 @@ public sealed class VaultService : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
             or CryptographicException or FormatException or PlatformNotSupportedException or System.Text.Json.JsonException)
         {
-            ClearSession();
+            LockVault();
             return new VaultUnlockResult(VaultUnlockStatus.Failed,
                 "The Master Password is incorrect, or PasswordTool storage could not be opened.");
         }
@@ -440,7 +447,8 @@ public sealed class VaultService : IDisposable
         }
 
         isVaultOpen = true;
-        signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
+        if (!IsSignInSessionActive)
+            signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
         return true;
     }
 
@@ -1069,6 +1077,12 @@ public sealed class VaultService : IDisposable
 
     public void ClearSession()
     {
+        LockVault();
+        signInSessionExpiresAt = null;
+    }
+
+    public void LockVault()
+    {
         if (encryptionKey is { Length: > 0 })
         {
             CryptographicOperations.ZeroMemory(encryptionKey);
@@ -1079,7 +1093,6 @@ public sealed class VaultService : IDisposable
         vaultData = null;
         isVaultOpen = false;
         encryptionUsesEnvelope = false;
-        signInSessionExpiresAt = null;
     }
 
     public void Dispose()
@@ -1328,7 +1341,10 @@ public sealed class VaultService : IDisposable
             throw new UnauthorizedAccessException("A Google Authenticator secret is required to open the vault.");
 
         if (!IsSignInSessionActive)
+        {
+            if (signInSessionExpiresAt is not null) ClearSession();
             throw new InvalidOperationException("The sign-in session expired. Unlock the vault again to continue.");
+        }
     }
 
     private void ThrowIfDisposed()
