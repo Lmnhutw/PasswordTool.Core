@@ -133,7 +133,7 @@ public sealed class VaultBackupService
             }
             catch (Exception ex) when (ex is CryptographicException or JsonException or FormatException)
             {
-                throw new CryptographicException("The backup passphrase is incorrect, or the backup file was modified.", ex);
+                throw new CryptographicException("The backup password is incorrect, or the backup file was modified.", ex);
             }
 
             payload.Items ??= [];
@@ -303,11 +303,11 @@ public sealed class VaultBackupService
             KeySizeBytes);
     }
 
-    private static void ValidatePassphrase(string passphrase)
+    public static void ValidatePassphrase(string passphrase)
     {
         if (string.IsNullOrWhiteSpace(passphrase) || passphrase.Length < 12)
         {
-            throw new ArgumentException("Use a backup passphrase with at least 12 characters.", nameof(passphrase));
+            throw new ArgumentException("Use a backup password with at least 12 characters.", nameof(passphrase));
         }
     }
 

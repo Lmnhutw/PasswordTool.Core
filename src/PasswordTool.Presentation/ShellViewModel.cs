@@ -12,6 +12,7 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly IFilePickerService filePicker;
     private readonly IUserErrorMapper errorMapper;
     private readonly IUserDialogService dialogs;
+    private bool backupReminderOffered;
 
     public ShellViewModel(
         AppFlowCoordinator flow,
@@ -57,6 +58,7 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] public partial TimeSpan InactivityTimeout { get; set; } = TimeSpan.FromMinutes(1);
     [ObservableProperty] public partial TimeSpan VaultOpenDuration { get; set; } = TimeSpan.FromHours(5);
     [ObservableProperty] public partial bool IsRecovering { get; set; }
+    [ObservableProperty] public partial bool IsBackupReminderOpen { get; set; }
     [ObservableProperty] public partial string RecoveryPath { get; set; } = string.Empty;
     [ObservableProperty] public partial string RecoverySummary { get; set; } = string.Empty;
     [ObservableProperty] public partial AuthenticatorSetup? PendingAuthenticatorSetup { get; set; }
@@ -199,6 +201,7 @@ public sealed partial class ShellViewModel : ObservableObject
     [RelayCommand]
     private async Task LockAsync()
     {
+        IsBackupReminderOpen = false;
         await flow.LockAsync();
         Vault.Clear();
         await clipboard.ClearOwnedValueAsync();
@@ -249,6 +252,19 @@ public sealed partial class ShellViewModel : ObservableObject
             await Vault.RefreshAsync();
             Navigate(AppRoute.Vault);
             ClearAuthenticationStatus();
+            if (input.Id is null && !backupReminderOffered)
+            {
+                try
+                {
+                    if ((await flow.GetListItemsAsync()).Count == 1
+                        && (await flow.GetDeletedItemsAsync()).Count == 0)
+                    {
+                        backupReminderOffered = true;
+                        IsBackupReminderOpen = (await flow.GetSettingsAsync()).LastExternalBackupAt is null;
+                    }
+                }
+                catch { /* Saving the item succeeded; a reminder must not turn it into a failure. */ }
+            }
             return true;
         }
         catch (Exception exception)

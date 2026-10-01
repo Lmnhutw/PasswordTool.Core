@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using PasswordTool.Core.Models;
 
 namespace PasswordTool.Presentation;
 
@@ -12,6 +13,7 @@ public sealed class UserErrorMapper : IUserErrorMapper
 {
     public string Map(Exception exception) => exception switch
     {
+        BackupOperationException backup => backup.Message,
         OperationCanceledException => "The operation was canceled.",
         UnauthorizedAccessException => "PasswordTool does not have permission to access the selected location.",
         FileNotFoundException => "The selected file could not be found.",

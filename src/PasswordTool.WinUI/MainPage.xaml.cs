@@ -43,6 +43,9 @@ public sealed partial class MainPage : Page
     }
 
     public static Visibility BoolToVisibility(bool value) => value ? Visibility.Visible : Visibility.Collapsed;
+    public static bool Not(bool value) => !value;
+    public static bool HasSelection(object? value) => value is not null;
+    public static Visibility EmptyVisibility(int count) => count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility InvertBoolToVisibility(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
     public static HorizontalAlignment NotesRevealAlignment(bool hideNotes) => hideNotes ? HorizontalAlignment.Center : HorizontalAlignment.Right;
     public static string ItemAutomationId(string action, Guid id) => $"{action}_{id:N}";
@@ -369,6 +372,7 @@ public sealed partial class MainPage : Page
 
     private void ApplyRoute(AppRoute route)
     {
+        if (route == AppRoute.ItemEditor) ShellNavigation.SelectedItem = null;
         VaultPage.Visibility = route == AppRoute.Vault && !showingTrash ? Visibility.Visible : Visibility.Collapsed;
         TrashPage.Visibility = route == AppRoute.Vault && showingTrash ? Visibility.Visible : Visibility.Collapsed;
         EditorPage.Visibility = route == AppRoute.ItemEditor ? Visibility.Visible : Visibility.Collapsed;
@@ -622,6 +626,16 @@ public sealed partial class MainPage : Page
         args.Handled = true;
     }
 
+    private void HashModeSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        if (HashGeneratePanel is null) return;
+        var mode = sender.Items.IndexOf(sender.SelectedItem);
+        HashGeneratePanel.Visibility = mode == 0 ? Visibility.Visible : Visibility.Collapsed;
+        HashVerifyPanel.Visibility = mode == 1 ? Visibility.Visible : Visibility.Collapsed;
+        HashInspectPanel.Visibility = mode == 2 ? Visibility.Visible : Visibility.Collapsed;
+        HashErrorInfoBar.IsOpen = false;
+    }
+
     private void GenerateHashButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.HashTool.GenerateCommand.Execute(HashGeneratePassword.Password);
@@ -701,26 +715,27 @@ public sealed partial class MainPage : Page
         settingsAuthenticatorSetup = null;
     }
 
-    private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)
+    private async void BackupReminderCreate_Click(object sender, RoutedEventArgs e)
     {
-        if (!string.Equals(BackupPassphrase.Password, BackupPassphraseConfirmation.Password, StringComparison.Ordinal))
-        {
-            ViewModel.Backup.StatusMessage = "The backup passphrase values do not match.";
-            ViewModel.Backup.IsStatusOpen = true;
-            return;
-        }
-        await ViewModel.Backup.ExportAsync(BackupPassphrase.Password);
-        BackupPassphraseConfirmation.Password = string.Empty;
+        ViewModel.IsBackupReminderOpen = false;
+        ViewModel.Navigate(AppRoute.Backup);
+        ApplyRoute(AppRoute.Backup);
+        await ViewModel.Backup.LoadAsync();
     }
 
+    private void BackupReminderLater_Click(object sender, RoutedEventArgs e) => ViewModel.IsBackupReminderOpen = false;
+
+    private async void ExportBackupButton_Click(object sender, RoutedEventArgs e) =>
+        await ViewModel.Backup.ExportAsync();
+
     private async void VerifyBackupButton_Click(object sender, RoutedEventArgs e) =>
-        await ViewModel.Backup.VerifyAsync(BackupPassphrase.Password);
+        await ViewModel.Backup.VerifyAsync();
 
     private async void PreviewBackupImportButton_Click(object sender, RoutedEventArgs e) =>
-        await ViewModel.Backup.PreviewImportAsync(BackupPassphrase.Password);
+        await ViewModel.Backup.PreviewImportAsync();
 
     private async void ImportBackupButton_Click(object sender, RoutedEventArgs e) =>
-        await ViewModel.Backup.ImportBackupAsync(BackupPassphrase.Password);
+        await ViewModel.Backup.ImportBackupAsync();
 
     private async void PreviewCsvButton_Click(object sender, RoutedEventArgs e) => await ViewModel.Backup.PreviewCsvAsync();
     private async void ImportCsvButton_Click(object sender, RoutedEventArgs e) => await ViewModel.Backup.ImportCsvAsync();

@@ -14,7 +14,7 @@ namespace PasswordTool_WinUI;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    private const int MinimumLogicalWidth = 900;
+    private const int MinimumLogicalWidth = 1200;
     private const int MinimumLogicalHeight = 600;
     private bool enforcingMinimumSize;
     [DllImport("user32.dll")]
@@ -31,7 +31,7 @@ public sealed partial class MainWindow : Window
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var scale = GetDpiForWindow(hwnd) / 96d;
-        AppWindow.Resize(new SizeInt32((int)(1120 * scale), (int)(720 * scale)));
+        AppWindow.Resize(new SizeInt32((int)(1280 * scale), (int)(720 * scale)));
         AppWindow.Changed += AppWindow_Changed;
 
         // Navigate the root frame to the main page on startup.

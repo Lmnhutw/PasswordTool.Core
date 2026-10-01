@@ -212,8 +212,18 @@ public sealed class VaultService : IDisposable
         RequireSensitiveTotp(totpCode);
 
         var backupJson = backupService.CreateBackup(vaultData!.Items, passphrase, utcNow());
-        WriteExternalBackupFile(destinationPath, backupJson);
-        UpdateBackupHealth(lastExternalBackupAt: utcNow());
+        WriteExternalBackupFile(destinationPath, backupJson,
+            path => backupService.InspectBackup(ReadBoundedBackupFile(path), passphrase));
+        try
+        {
+            var now = utcNow();
+            UpdateBackupHealth(lastExternalBackupAt: now, lastVerifiedBackupAt: now);
+        }
+        catch (Exception ex)
+        {
+            throw new BackupOperationException(
+                "Backup created and verified, but the app's backup status could not be updated.", ex);
+        }
     }
 
     public void RecoverFromBackup(VaultRecoveryRequest request)
@@ -1123,7 +1133,7 @@ public sealed class VaultService : IDisposable
         return File.ReadAllText(backupPath);
     }
 
-    private static void WriteExternalBackupFile(string destinationPath, string backupJson)
+    internal static void WriteExternalBackupFile(string destinationPath, string backupJson, Action<string> verify)
     {
         if (string.IsNullOrWhiteSpace(destinationPath))
         {
@@ -1142,7 +1152,19 @@ public sealed class VaultService : IDisposable
         try
         {
             File.WriteAllText(tempPath, backupJson);
+            try { verify(tempPath); }
+            catch (Exception ex)
+            {
+                throw new BackupOperationException(
+                    "Backup verification failed before saving. Any previous backup was preserved.", ex);
+            }
             File.Move(tempPath, fullPath, overwrite: true);
+            try { verify(fullPath); }
+            catch (Exception ex)
+            {
+                throw new BackupOperationException(
+                    "The backup file was written, but verification failed. Do not rely on it for recovery; create and verify another backup.", ex);
+            }
         }
         finally
         {

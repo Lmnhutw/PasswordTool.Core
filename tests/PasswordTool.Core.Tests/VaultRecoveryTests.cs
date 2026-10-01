@@ -252,13 +252,91 @@ public sealed class VaultRecoveryTests : IDisposable
         var path = Path.Combine(tempDirectory, "backup.json");
         vault.CreateExternalBackupFile(path, BackupPassphrase, code);
         Assert.Equal(now, vault.LastExternalBackupAt);
+        Assert.Equal(now, vault.LastVerifiedBackupAt);
+        var createdAt = now;
+        now = now.AddMinutes(1);
 
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
             vault.VerifyExternalBackupFile(path, "incorrect backup passphrase"));
-        Assert.Null(vault.LastVerifiedBackupAt);
+        Assert.Equal(createdAt, vault.LastVerifiedBackupAt);
         var inspection = vault.VerifyExternalBackupFile(path, BackupPassphrase);
         Assert.Equal(0, inspection.TotalItemCount);
         Assert.Equal(now, vault.LastVerifiedBackupAt);
+        Assert.Equal(createdAt, vault.LastExternalBackupAt);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Verification_failure_reports_the_stage_and_preserves_previous_file_until_replacement(bool destinationFailure)
+    {
+        Directory.CreateDirectory(tempDirectory);
+        var path = Path.Combine(tempDirectory, "backup.json");
+        File.WriteAllText(path, "previous backup");
+        var backup = new VaultBackupService();
+        var json = backup.CreateBackup([], BackupPassphrase, DateTimeOffset.UtcNow);
+        var calls = 0;
+        var error = Assert.Throws<BackupOperationException>(() =>
+            VaultService.WriteExternalBackupFile(path, json, candidate =>
+            {
+                calls++;
+                if (destinationFailure == (candidate == path)) File.WriteAllText(candidate, "corrupted");
+                backup.InspectBackup(File.ReadAllText(candidate), BackupPassphrase);
+            }));
+        Assert.Equal(destinationFailure ? 2 : 1, calls);
+        Assert.Contains(destinationFailure ? "was written" : "previous backup was preserved", error.Message);
+        Assert.Equal(destinationFailure ? "corrupted" : "previous backup", File.ReadAllText(path));
+        Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp"));
+    }
+
+    [Fact]
+    public void Replacement_failure_preserves_existing_backup_and_cleans_temporary_file()
+    {
+        Directory.CreateDirectory(tempDirectory);
+        var path = Path.Combine(tempDirectory, "backup.json");
+        File.WriteAllText(path, "previous backup");
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var error = Record.Exception(() => VaultService.WriteExternalBackupFile(path, "new backup", _ => { }));
+            Assert.True(error is IOException or UnauthorizedAccessException);
+        }
+        Assert.Equal("previous backup", File.ReadAllText(path));
+        Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Verified_backup_updates_both_timestamps_in_one_save_or_reports_metadata_failure(bool failMetadata)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var saves = 0;
+        var fail = false;
+        var storage = new VaultStorageService(tempDirectory, stage =>
+        {
+            if (stage != "staged") return;
+            saves++;
+            if (fail) throw new IOException("simulated configuration write failure");
+        });
+        var totp = new TotpService();
+        var secret = totp.GenerateSecret();
+        using var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
+        vault.InitializeNewVault(NewMasterPassword, secret, ComputeTotp(secret));
+        saves = 0;
+        fail = failMetadata;
+        var path = Path.Combine(tempDirectory, "backup.json");
+        if (failMetadata)
+        {
+            var error = Assert.Throws<BackupOperationException>(() =>
+                vault.CreateExternalBackupFile(path, BackupPassphrase, ComputeTotp(secret)));
+            Assert.Contains("created and verified", error.Message);
+            Assert.Contains("status could not be updated", error.Message);
+        }
+        else vault.CreateExternalBackupFile(path, BackupPassphrase, ComputeTotp(secret));
+        Assert.Equal(1, saves);
+        Assert.Equal(0, new VaultBackupService().InspectBackup(File.ReadAllText(path), BackupPassphrase).TotalItemCount);
+        Assert.Equal(failMetadata ? (DateTimeOffset?)null : now, vault.LastExternalBackupAt);
+        Assert.Equal(failMetadata ? (DateTimeOffset?)null : now, vault.LastVerifiedBackupAt);
     }
 
     public void Dispose()

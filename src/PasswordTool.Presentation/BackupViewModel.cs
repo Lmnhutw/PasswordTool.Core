@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PasswordTool.Core.Models;
+using PasswordTool.Core.Services;
 
 namespace PasswordTool.Presentation;
 
@@ -19,6 +20,8 @@ public sealed partial class BackupViewModel(
     [ObservableProperty] public partial bool CanImportBackup { get; set; }
     [ObservableProperty] public partial bool CanImportCsv { get; set; }
     [ObservableProperty] public partial bool IsBusy { get; set; }
+    [ObservableProperty] public partial string BackupPassword { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ConfirmBackupPassword { get; set; } = string.Empty;
     [ObservableProperty] public partial VaultSnapshotInfo? SelectedSnapshot { get; set; }
 
     public ObservableCollection<VaultSnapshotInfo> Snapshots { get; } = [];
@@ -30,37 +33,66 @@ public sealed partial class BackupViewModel(
         foreach (var snapshot in snapshots) Snapshots.Add(snapshot);
     }
 
-    public async Task ExportAsync(string passphrase)
+    public async Task ExportAsync()
     {
-        var path = await filePicker.PickSavePathAsync($"PasswordTool-backup-{DateTime.Now:yyyyMMdd-HHmm}.json");
-        if (path is null) return;
+        if (IsBusy) return;
+        try { VaultBackupService.ValidatePassphrase(BackupPassword); }
+        catch (ArgumentException)
+        {
+            ShowStatus("Use a backup password with at least 12 characters.");
+            return;
+        }
+        if (!string.Equals(BackupPassword, ConfirmBackupPassword, StringComparison.Ordinal))
+        {
+            ShowStatus("The backup passwords do not match.");
+            return;
+        }
         await RunAsync(async () =>
         {
-            await flow.CreateExternalBackupAsync(path, passphrase, string.Empty);
-            ShowStatus("Encrypted backup created and recorded in backup health.");
+            var path = await filePicker.PickSavePathAsync($"PasswordTool-backup-{DateTime.Now:yyyyMMdd-HHmm}.json");
+            if (path is null) return;
+            try
+            {
+                await flow.CreateExternalBackupAsync(path, BackupPassword, string.Empty);
+                ShowStatus("Backup created and verified.");
+            }
+            finally
+            {
+                BackupPassword = string.Empty;
+                ConfirmBackupPassword = string.Empty;
+            }
         });
     }
 
-    public async Task VerifyAsync(string passphrase)
+    public async Task VerifyAsync()
     {
-        var path = await filePicker.PickOpenPathAsync();
-        if (path is null) return;
         await RunAsync(async () =>
         {
-            var inspection = await flow.VerifyExternalBackupAsync(path, passphrase);
-            SelectedBackupPath = path;
-            Summary = FormatInspection(inspection);
-            ShowStatus("Backup authenticated successfully.");
+            var path = await filePicker.PickOpenPathAsync();
+            if (path is null) return;
+            try
+            {
+                var inspection = await flow.VerifyExternalBackupAsync(path, BackupPassword);
+                SelectedBackupPath = path;
+                Summary = FormatInspection(inspection);
+                ShowStatus("Backup verified. Check it again later to confirm it is still readable.");
+            }
+            finally
+            {
+                BackupPassword = string.Empty;
+                ConfirmBackupPassword = string.Empty;
+            }
         });
     }
 
-    public async Task PreviewImportAsync(string passphrase)
+    public async Task PreviewImportAsync()
     {
-        var path = await filePicker.PickOpenPathAsync();
-        if (path is null) return;
         await RunAsync(async () =>
         {
-            var plan = await flow.PreviewBackupImportAsync(path, passphrase, string.Empty);
+            var path = await filePicker.PickOpenPathAsync();
+            if (path is null) return;
+            CanImportBackup = false;
+            var plan = await flow.PreviewBackupImportAsync(path, BackupPassword, string.Empty);
             SelectedBackupPath = path;
             Summary = $"{plan.NewItemCount:N0} new · {plan.DuplicateCount:N0} duplicate · {plan.ConflictCount:N0} conflict";
             CanImportBackup = plan.NewItemCount > 0;
@@ -68,12 +100,12 @@ public sealed partial class BackupViewModel(
         });
     }
 
-    public async Task ImportBackupAsync(string passphrase)
+    public async Task ImportBackupAsync()
     {
         if (!CanImportBackup) return;
         await RunAsync(async () =>
         {
-            var count = await flow.ImportBackupAsync(SelectedBackupPath, passphrase, string.Empty);
+            var count = await flow.ImportBackupAsync(SelectedBackupPath, BackupPassword, string.Empty);
             await vault.RefreshAsync();
             CanImportBackup = false;
             ShowStatus($"Imported {count:N0} new item{(count == 1 ? string.Empty : "s")}.");
@@ -82,10 +114,10 @@ public sealed partial class BackupViewModel(
 
     public async Task PreviewCsvAsync()
     {
-        var path = await filePicker.PickOpenPathAsync();
-        if (path is null) return;
         await RunAsync(async () =>
         {
+            var path = await filePicker.PickOpenPathAsync();
+            if (path is null) return;
             var plan = await flow.PreviewCsvImportAsync(path, string.Empty);
             SelectedCsvPath = path;
             Summary = $"{plan.NewItemCount:N0} new · {plan.DuplicateCount:N0} duplicate";
@@ -108,15 +140,21 @@ public sealed partial class BackupViewModel(
 
     public async Task<bool> RestoreSnapshotAsync(string masterPassword)
     {
-        if (SelectedSnapshot is null) return false;
-        if (!await dialogs.ConfirmAsync("Restore snapshot", "Restore the selected config/vault pair and return to Unlock?", "Restore")) return false;
-        var result = await flow.RestoreSnapshotAsync(SelectedSnapshot.Id, masterPassword);
-        ShowStatus(result.Success ? "Snapshot restored. Unlock the restored vault to continue." : result.Message);
-        return result.Success;
+        if (SelectedSnapshot is not { } snapshot) return false;
+        var restored = false;
+        await RunAsync(async () =>
+        {
+            if (!await dialogs.ConfirmAsync("Restore snapshot", "Restore the selected config/vault pair and return to Unlock?", "Restore")) return;
+            var result = await flow.RestoreSnapshotAsync(snapshot.Id, masterPassword);
+            ShowStatus(result.Success ? "Snapshot restored. Unlock the restored vault to continue." : result.Message);
+            restored = result.Success;
+        });
+        return restored;
     }
 
     private async Task RunAsync(Func<Task> action)
     {
+        if (IsBusy) return;
         IsBusy = true;
         try
         {
@@ -131,6 +169,8 @@ public sealed partial class BackupViewModel(
             IsBusy = false;
         }
     }
+
+    partial void OnBackupPasswordChanged(string value) => CanImportBackup = false;
 
     private void ShowStatus(string message)
     {

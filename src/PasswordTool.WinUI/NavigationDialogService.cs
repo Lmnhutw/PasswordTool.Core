@@ -76,7 +76,7 @@ internal sealed class NavigationDialogService(ISensitiveClipboardService clipboa
         string title,
         string message,
         CancellationToken cancellationToken = default) =>
-        PromptSecretAsync(title, message, "Backup passphrase", cancellationToken);
+        PromptSecretAsync(title, message, "Backup password", cancellationToken);
 
     public async Task ShowSecretAsync(
         string title,

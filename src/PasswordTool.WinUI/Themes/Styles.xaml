@@ -27,6 +27,31 @@
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
+    <Style x:Key="PasswordToolDescriptionStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="PasswordToolFormStyle" TargetType="StackPanel">
+        <Setter Property="Spacing" Value="24" />
+        <Setter Property="MaxWidth" Value="960" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Margin" Value="0,0,0,24" />
+    </Style>
+
+    <Style x:Key="PasswordToolHashInputStyle" TargetType="TextBox">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="MinHeight" Value="112" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="HeaderTemplate">
+            <Setter.Value>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" FontFamily="{ThemeResource ContentControlThemeFontFamily}" />
+                </DataTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="PasswordToolCardStyle" TargetType="Border">
         <Setter Property="Padding" Value="{StaticResource PasswordToolCardPadding}" />
         <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
