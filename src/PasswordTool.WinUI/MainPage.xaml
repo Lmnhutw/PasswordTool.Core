@@ -169,6 +169,7 @@
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
             PaneDisplayMode="LeftCompact"
+            OpenPaneLength="220"
             SelectionChanged="ShellNavigation_SelectionChanged"
             Visibility="Collapsed">
             <NavigationView.MenuItems>
@@ -178,7 +179,7 @@
                 <NavigationViewItem AutomationProperties.AutomationId="NavHashTool" Content="Hash Tool" Icon="Calculator" Tag="HashTool" />
                 <NavigationViewItem AutomationProperties.AutomationId="NavSettings" Content="Settings" Icon="Setting" Tag="Settings" />
             </NavigationView.MenuItems>
-            <Grid Padding="{StaticResource PasswordToolPagePadding}" MaxWidth="{StaticResource PasswordToolContentMaxWidth}">
+            <Grid x:Name="WorkspaceContent" Padding="{StaticResource PasswordToolPagePadding}">
                 <Grid x:Name="VaultPage">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -226,57 +227,32 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" MinWidth="200" MaxWidth="380" />
-                                <ColumnDefinition Width="130" />
-                                <ColumnDefinition Width="130" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="VaultSearchInput" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="TxtVaultSearch" Header="Search" PlaceholderText="Title, username, or URL" Text="{x:Bind ViewModel.Vault.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <ComboBox Grid.Column="1" AutomationProperties.Name="Item type filter" Header="View" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Vault.ViewFilters}" SelectedItem="{x:Bind ViewModel.Vault.SelectedViewFilter, Mode=TwoWay}" />
-                            <ComboBox Grid.Column="2" AutomationProperties.Name="Sort order" Header="Sort" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Vault.SortOrders}" SelectedItem="{x:Bind ViewModel.Vault.SelectedSortOrder, Mode=TwoWay}" />
-                            <CheckBox Grid.Column="3" VerticalAlignment="Bottom" Content="Filter by group" AutomationProperties.AutomationId="ChkFilterByGroup" IsChecked="{x:Bind ViewModel.Vault.FilterByGroup, Mode=TwoWay}" />
-                        </Grid>
-                        <Grid Grid.Row="1" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="GroupTabPlacement" AutomationProperties.AutomationId="CmbGroupTabPlacement" AutomationProperties.Name="Group tab placement" SelectedIndex="0" SelectionChanged="GroupTabPlacement_SelectionChanged">
-                                <ComboBoxItem Content="Horizontal" />
-                                <ComboBoxItem Content="Vertical" />
-                            </ComboBox>
-                            <Button Grid.Column="1" Content="Clear filters" AutomationProperties.AutomationId="BtnClearVaultFilters" Click="ClearVaultFilters_Click" />
-                            <StackPanel x:Name="VaultActions" Grid.Column="3" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
-                                <Button AutomationProperties.AutomationId="BtnAddGroup" AutomationProperties.Name="Create group" Click="AddGroupButton_Click" Content="New Group" />
-                                <Button Style="{StaticResource AccentButtonStyle}" AutomationProperties.AutomationId="BtnAddItem" AutomationProperties.Name="Add vault item" Click="AddItemButton_Click" Content="Add item" />
-                                <Button AutomationProperties.AutomationId="BtnOpenTrash" AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Content="Trash" />
-                            </StackPanel>
-                        </Grid>
+                        <TextBox x:Name="VaultSearchInput" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="TxtVaultSearch" Header="Search" PlaceholderText="Title, username, or URL" Text="{x:Bind ViewModel.Vault.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <VariableSizedWrapGrid Grid.Row="1" Orientation="Horizontal" MaximumRowsOrColumns="4">
+                            <ComboBox Width="150" Margin="0,0,12,8" AutomationProperties.Name="Item type filter" Header="View" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Vault.ViewFilters}" SelectedItem="{x:Bind ViewModel.Vault.SelectedViewFilter, Mode=TwoWay}" />
+                            <ComboBox Width="160" Margin="0,0,12,8" AutomationProperties.Name="Sort order" Header="Sort" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Vault.SortOrders}" SelectedItem="{x:Bind ViewModel.Vault.SelectedSortOrder, Mode=TwoWay}" />
+                            <CheckBox Margin="0,24,12,8" VerticalAlignment="Center" Content="Filter by group" AutomationProperties.AutomationId="ChkFilterByGroup" IsChecked="{x:Bind ViewModel.Vault.FilterByGroup, Mode=TwoWay}" />
+                            <Button Margin="0,24,0,8" VerticalAlignment="Center" Content="Clear filters" AutomationProperties.AutomationId="BtnClearVaultFilters" Click="ClearVaultFilters_Click" IsEnabled="{x:Bind ViewModel.Vault.CanClearFilters, Mode=OneWay}" />
+                        </VariableSizedWrapGrid>
                     </Grid>
-
-                    <Grid x:Name="GroupContainer" Grid.Row="2">
+                    <Grid x:Name="GroupContainer" Grid.Row="2" RowSpacing="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Border x:Name="GroupTableFrame" Grid.Row="1" Grid.ColumnSpan="2" Padding="10" CornerRadius="8" Background="{ThemeResource VaultGroupBackgroundBrush}">
                             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
                                 <ScrollViewer HorizontalContentAlignment="Stretch" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Credential table horizontal scroll">
-                                    <Grid MinWidth="1000">
+                                    <Grid x:Name="CredentialTable" MinWidth="660" SizeChanged="CredentialTable_SizeChanged">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="*" />
                                         </Grid.RowDefinitions>
-                                        <Grid Padding="12,8" ColumnSpacing="20" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                        <Grid x:Name="CredentialHeader" Loaded="CredentialGrid_Loaded" Padding="12,8" ColumnSpacing="20" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="108" />
                                                 <ColumnDefinition Width="1.7*" />
@@ -365,7 +341,7 @@
                                 </ScrollViewer>
                             </Border>
                         </Border>
-                        <Grid x:Name="GroupTabStrip" Grid.ColumnSpan="2" Canvas.ZIndex="1" Margin="12,0,12,-1" SizeChanged="GroupTabStrip_SizeChanged">
+                        <Grid x:Name="GroupTabStrip" Canvas.ZIndex="1" Margin="12,0,12,-1" SizeChanged="GroupTabStrip_SizeChanged">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
@@ -376,16 +352,17 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
+                            <Button x:Name="PreviousGroupTab" Grid.Column="1" Margin="4,0" MinWidth="32" Padding="8" AutomationProperties.AutomationId="BtnPreviousGroupTab" AutomationProperties.Name="Previous group tabs" ToolTipService.ToolTip="Previous group tabs" Click="PreviousGroupTab_Click">
+                                <FontIcon FontSize="12" Glyph="&#xE76B;" />
+                            </Button>
+                            <ScrollViewer x:Name="GroupTabsScroller" Grid.Column="2" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" ViewChanged="GroupTabsScroller_ViewChanged" SizeChanged="GroupTabsScroller_SizeChanged" IsTabStop="False">
+                                <StackPanel x:Name="ScrollableGroupTabs" Orientation="Horizontal" Spacing="4">
                             <Button x:Name="AllGroupTab" Style="{StaticResource VaultTabButtonStyle}" Padding="12,8" MinHeight="40" AutomationProperties.AutomationId="Group_All" AutomationProperties.Name="All credentials" Click="GroupHeaderButton_Click" Tag="{x:Bind ViewModel.Vault.AllGroup}" PointerEntered="GroupTab_PointerEntered" PointerExited="GroupTab_PointerExited" KeyDown="GroupTab_KeyDown" Loaded="GroupTab_Loaded" ActualThemeChanged="GroupTab_ActualThemeChanged" BorderThickness="1,1,1,0" CornerRadius="6,6,0,0">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="All" />
                                     <TextBlock Text="{x:Bind ViewModel.Vault.AllGroup.CountText, Mode=OneWay}" />
                                 </StackPanel>
                             </Button>
-                            <Button x:Name="PreviousGroupTab" Grid.Column="1" Margin="4,0" MinWidth="32" Padding="8" AutomationProperties.AutomationId="BtnPreviousGroupTab" AutomationProperties.Name="Previous group tabs" ToolTipService.ToolTip="Previous group tabs" Click="PreviousGroupTab_Click">
-                                <FontIcon FontSize="12" Glyph="&#xE76B;" />
-                            </Button>
-                            <ScrollViewer x:Name="GroupTabsScroller" Grid.Column="2" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" ViewChanged="GroupTabsScroller_ViewChanged" SizeChanged="GroupTabsScroller_SizeChanged" IsTabStop="False">
                                 <ItemsRepeater x:Name="GroupTabsRepeater" ItemsSource="{x:Bind ViewModel.Vault.GroupTabs, Mode=OneWay}" ElementPrepared="GroupTabsRepeater_ElementPrepared">
                                     <ItemsRepeater.Layout>
                                         <StackLayout Orientation="Horizontal" Spacing="4" />
@@ -412,11 +389,17 @@
                                         </DataTemplate>
                                     </ItemsRepeater.ItemTemplate>
                                 </ItemsRepeater>
+                                </StackPanel>
                             </ScrollViewer>
                             <Button x:Name="NextGroupTab" Grid.Column="3" Margin="4,0" MinWidth="32" Padding="8" AutomationProperties.AutomationId="BtnNextGroupTab" AutomationProperties.Name="Next group tabs" ToolTipService.ToolTip="Next group tabs" Click="NextGroupTab_Click">
                                 <FontIcon FontSize="12" Glyph="&#xE76C;" />
                             </Button>
                         </Grid>
+                        <StackPanel x:Name="VaultActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                            <Button AutomationProperties.AutomationId="BtnAddGroup" AutomationProperties.Name="Create group" Click="AddGroupButton_Click" Content="New Group" />
+                            <Button Style="{StaticResource AccentButtonStyle}" AutomationProperties.AutomationId="BtnAddItem" AutomationProperties.Name="Add vault item" Click="AddItemButton_Click" Content="Add item" />
+                            <Button AutomationProperties.AutomationId="BtnOpenTrash" AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Content="Trash" />
+                        </StackPanel>
                     </Grid>
                 </Grid>
 
@@ -701,6 +684,10 @@
                             </StackPanel>
                         </Expander>
 
+                        <ComboBox x:Name="GroupTabPlacement" Width="200" HorizontalAlignment="Left" Header="Vault layout" AutomationProperties.AutomationId="CmbGroupTabPlacement" AutomationProperties.Name="Vault layout" SelectedIndex="0" SelectionChanged="GroupTabPlacement_SelectionChanged">
+                            <ComboBoxItem Content="Horizontal" />
+                            <ComboBoxItem Content="Vertical" />
+                        </ComboBox>
                         <Expander Header="Authenticator" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                             <StackPanel Spacing="12">
                                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Generate a replacement setup, scan it, and confirm the new 6-digit code. Existing trusted tokens are replaced only after successful verification." TextWrapping="Wrap" />

@@ -77,6 +77,28 @@ public sealed partial class MainPage : Page
     {
         if (sender is not DependencyObject row) return;
         ApplyVaultIconHover(row);
+        if (row is Grid grid) ApplyCredentialColumns(grid);
+    }
+
+    private void CredentialGrid_Loaded(object sender, RoutedEventArgs e) => ApplyCredentialColumns((Grid)sender);
+
+    private void CredentialTable_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ApplyCredentialColumns(CredentialHeader);
+        for (var index = 0; index < CredentialList.Items.Count; index++)
+            if (CredentialList.ContainerFromIndex(index) is ListViewItem { ContentTemplateRoot: Grid row }) ApplyCredentialColumns(row);
+    }
+
+    private void ApplyCredentialColumns(Grid grid)
+    {
+        if (grid is null || CredentialTable is null) return;
+        var width = CredentialTable.ActualWidth;
+        double[] widths = [108, 1.8, 1.5, 160, width >= 820 ? 100 : 0, width >= 1000 ? 1.4 : 0, width >= 1180 ? 170 : 0];
+        for (var index = 0; index < widths.Length; index++)
+            grid.ColumnDefinitions[index].Width = new GridLength(widths[index], index is 1 or 2 || index == 5 && widths[index] > 0 ? GridUnitType.Star : GridUnitType.Pixel);
+        foreach (var child in grid.Children.OfType<FrameworkElement>())
+            if (Grid.GetColumn(child) >= 4 && Grid.GetColumnSpan(child) == 1)
+                child.Visibility = widths[Grid.GetColumn(child)] > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static void ApplyVaultIconHover(DependencyObject parent)
@@ -180,16 +202,19 @@ public sealed partial class MainPage : Page
     {
         if (GroupTabStrip is null) return;
         var vertical = ViewModel.Vault.IsVerticalTabs;
-        Grid.SetRow(GroupTableFrame, vertical ? 0 : 1);
+        Grid.SetRow(GroupTableFrame, 1);
         Grid.SetColumn(GroupTableFrame, vertical ? 1 : 0);
-        Grid.SetRowSpan(GroupTableFrame, vertical ? 2 : 1);
+        Grid.SetRowSpan(GroupTableFrame, 1);
         Grid.SetColumnSpan(GroupTableFrame, vertical ? 1 : 2);
-        Grid.SetRowSpan(GroupTabStrip, vertical ? 2 : 1);
-        Grid.SetColumnSpan(GroupTabStrip, vertical ? 1 : 2);
+        Grid.SetRow(GroupTabStrip, vertical ? 1 : 0);
+        Grid.SetRowSpan(GroupTabStrip, 1);
+        Grid.SetColumnSpan(GroupTabStrip, 1);
+        GroupContainer.ColumnDefinitions[0].Width = new GridLength(1, vertical ? GridUnitType.Auto : GridUnitType.Star);
+        GroupContainer.ColumnDefinitions[1].Width = new GridLength(1, vertical ? GridUnitType.Star : GridUnitType.Auto);
         GroupTabStrip.Width = vertical ? 180 : double.NaN;
         GroupTabStrip.Margin = vertical ? new Thickness(0, 12, -1, 12) : new Thickness(12, 0, 12, -1);
-        Grid.SetColumnSpan(AllGroupTab, vertical ? 4 : 1);
         AllGroupTab.HorizontalAlignment = vertical ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+        ScrollableGroupTabs.Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal;
         Grid.SetRow(GroupTabsScroller, vertical ? 1 : 0);
         Grid.SetColumn(GroupTabsScroller, vertical ? 0 : 2);
         Grid.SetColumnSpan(GroupTabsScroller, vertical ? 4 : 1);
@@ -213,6 +238,7 @@ public sealed partial class MainPage : Page
             GroupTabsRepeater.UpdateLayout();
             element.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true });
         }
+        else AllGroupTab.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true });
         UpdateTabOverflow();
     }
 
@@ -515,6 +541,7 @@ public sealed partial class MainPage : Page
 
     private void ApplyRoute(AppRoute route)
     {
+        WorkspaceContent.MaxWidth = route == AppRoute.Vault && !showingTrash ? double.PositiveInfinity : 1200;
         if (route == AppRoute.ItemEditor) ShellNavigation.SelectedItem = null;
         VaultPage.Visibility = route == AppRoute.Vault && !showingTrash ? Visibility.Visible : Visibility.Collapsed;
         TrashPage.Visibility = route == AppRoute.Vault && showingTrash ? Visibility.Visible : Visibility.Collapsed;

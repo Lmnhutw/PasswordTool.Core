@@ -29,6 +29,24 @@ public sealed class VaultWorkspaceViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Clear_filters_availability_tracks_resettable_state_without_changing_layout()
+    {
+        await workspace.RefreshAsync();
+        Assert.False(workspace.CanClearFilters);
+        workspace.IsVerticalTabs = true;
+        workspace.SearchText = "github";
+        Assert.True(workspace.CanClearFilters);
+        workspace.ResetToDefaultView();
+        Assert.False(workspace.CanClearFilters);
+        Assert.True(workspace.IsVerticalTabs);
+        workspace.SelectedSortOrder = workspace.SortOrders[1];
+        Assert.True(workspace.CanClearFilters);
+        workspace.ResetToDefaultView();
+        workspace.SelectGroup(Tab(work.Id));
+        Assert.True(workspace.CanClearFilters);
+    }
+
+    [Fact]
     public async Task Defaults_show_all_sorted_and_tabs_include_empty_groups()
     {
         await workspace.RefreshAsync();

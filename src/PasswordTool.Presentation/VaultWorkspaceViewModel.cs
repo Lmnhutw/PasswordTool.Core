@@ -36,6 +36,7 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
     [ObservableProperty] public partial bool IsVerticalTabs { get; set; }
     public string ItemCountText => $"{Items.Count:N0} item{(Items.Count == 1 ? string.Empty : "s")}";
     public bool IsEmpty => Items.Count == 0 && !IsBusy;
+    public bool CanClearFilters => HasFilter || !SelectedGroup.IsAll || SelectedSortOrder.Value != VaultSortOrder.TitleAscending;
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -60,6 +61,7 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
         ResetToDefaultView();
         IsBusy = false; SelectedItem = null;
         OnPropertyChanged(nameof(ItemCountText)); OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(CanClearFilters));
     }
 
     public bool SelectItem(Guid id)
@@ -144,6 +146,7 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
         for (var index = 0; index < visible.Count; index++) Items.Add(visible[index] with { IsLastInGroup = index == visible.Count - 1 });
         SelectedItem = Items.FirstOrDefault(item => item.Id == selectedId);
         OnPropertyChanged(nameof(ItemCountText)); OnPropertyChanged(nameof(IsEmpty));
+        OnPropertyChanged(nameof(CanClearFilters));
     }
 
     private void RefreshGroupTabs()
