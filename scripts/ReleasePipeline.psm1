@@ -50,7 +50,7 @@ function Assert-PublishedPayload {
         throw "Published payload directory '$publishPath' was not created."
     }
 
-    $expectedExecutable = Join-Path $publishPath 'PasswordTool.WinUI.exe'
+    $expectedExecutable = Join-Path $publishPath 'YourSafe.exe'
     if (-not (Test-Path -LiteralPath $expectedExecutable -PathType Leaf)) {
         throw "Expected published executable '$expectedExecutable' is missing."
     }

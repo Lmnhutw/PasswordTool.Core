@@ -516,11 +516,11 @@ function Assert-InstallerTemplateContract {
         throw 'Inno Setup must contain only the validated SourceDir payload.'
     }
     $iconLines = @(Get-InnoSectionLines -Lines $lines -SectionName 'Icons')
-    if ($iconLines.Count -ne 1 -or $iconLines[0] -cne 'Name: "{group}\PasswordTool"; Filename: "{app}\PasswordTool.WinUI.exe"') {
+    if ($iconLines.Count -ne 1 -or $iconLines[0] -cne 'Name: "{group}\PasswordTool"; Filename: "{app}\YourSafe.exe"') {
         throw 'Inno Setup must create the expected PasswordTool Start Menu entry.'
     }
     $runLines = @(Get-InnoSectionLines -Lines $lines -SectionName 'Run')
-    if ($runLines.Count -ne 1 -or $runLines[0] -cne 'Filename: "{app}\PasswordTool.WinUI.exe"; Description: "Launch PasswordTool"; Flags: nowait postinstall skipifsilent') {
+    if ($runLines.Count -ne 1 -or $runLines[0] -cne 'Filename: "{app}\YourSafe.exe"; Description: "Launch PasswordTool"; Flags: nowait postinstall skipifsilent') {
         throw 'Inno Setup must launch only the expected PasswordTool WinUI executable.'
     }
     if (@(Get-InnoSectionLines -Lines $lines -SectionName 'UninstallDelete').Count -ne 0) {

@@ -46,7 +46,7 @@ function New-TestRelease {
     $releaseDirectory = Join-Path $Root $Version
     $publishDirectory = Join-Path $releaseDirectory 'publish'
     New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
-    [System.IO.File]::WriteAllBytes((Join-Path $publishDirectory 'PasswordTool.WinUI.exe'), [byte[]](1, 2, 3, 4, 5, 6))
+    [System.IO.File]::WriteAllBytes((Join-Path $publishDirectory 'YourSafe.exe'), [byte[]](1, 2, 3, 4, 5, 6))
     [System.IO.File]::WriteAllBytes((Join-Path $publishDirectory 'PasswordTool.Core.dll'), [byte[]](7, 8, 9, 10))
 
     $archivePath = Join-Path $releaseDirectory "PasswordTool-$Version-win-x64.zip"

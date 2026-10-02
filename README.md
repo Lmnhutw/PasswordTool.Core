@@ -25,7 +25,7 @@ The desktop application is implemented exclusively with WinUI 3. The former WinF
 The recommended way to use PasswordTool is to download an approved Windows x64 release from the [GitHub Releases page](https://github.com/Lmnhutw/PasswordTool.Core/releases). A release may provide either or both of these packages:
 
 - **Installer (`.exe`)** — the easiest option. It installs PasswordTool for the current Windows user, adds a Start Menu shortcut, and does not require administrator access.
-- **Portable ZIP** — extract the complete ZIP to a folder you control, then run `PasswordTool.WinUI.exe`. Do not run the executable from inside the ZIP or copy only the `.exe` out of its folder.
+- **Portable ZIP** — extract the complete ZIP to a folder you control, then run `YourSafe.exe`. Do not run the executable from inside the ZIP or copy only the `.exe` out of its folder.
 
 Before running a downloaded build:
 

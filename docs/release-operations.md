@@ -106,7 +106,7 @@ Get-Content .\artifacts\releases\1.0.0\checksums.sha256 | ForEach-Object {
 For a signed executable, verify its Authenticode signature and timestamp:
 
 ```powershell
-signtool verify /pa /tw .\artifacts\releases\1.0.0\publish\PasswordTool.WinUI.exe
+signtool verify /pa /tw .\artifacts\releases\1.0.0\publish\YourSafe.exe
 ```
 
 Verify the installer too when one was produced. A successful verification is the only basis for describing the release as signed.

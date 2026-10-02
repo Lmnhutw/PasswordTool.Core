@@ -32,10 +32,10 @@ UsePreviousAppDir=yes
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\PasswordTool"; Filename: "{app}\PasswordTool.WinUI.exe"
+Name: "{group}\PasswordTool"; Filename: "{app}\YourSafe.exe"
 
 [Run]
-Filename: "{app}\PasswordTool.WinUI.exe"; Description: "Launch PasswordTool"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\YourSafe.exe"; Description: "Launch PasswordTool"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; Application binaries are removed by the uninstaller. Vault data intentionally lives in

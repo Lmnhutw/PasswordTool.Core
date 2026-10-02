@@ -61,15 +61,16 @@ const server = http.createServer((request, response) => {
         assert.equal(await page.locator(".menu-toggle").isVisible(), false);
         assert.equal(await page.locator("#site-nav").isVisible(), true);
       }
-      await page.locator("summary").first().click();
-      assert.equal(await page.locator("details").first().getAttribute("open"), "");
-      await page.locator("summary").first().click();
+      await page.locator("#faq summary").first().click();
+      assert.equal(await page.locator("#faq details").first().getAttribute("open"), "");
+      await page.locator("#faq summary").first().click();
       await page.evaluate(() => scrollTo(0, 0));
       assert.equal(await page.locator(".hero-copy").evaluate((element) => getComputedStyle(element).animationName), "none");
       if ([1440, 390].includes(width)) {
         await page.screenshot({ path: path.join(root, `../.impeccable/review/${width === 1440 ? "desktop" : "mobile"}.png`), fullPage: true });
       }
     }
+    await page.locator("#install summary").click();
     await page.evaluate(() => {
       window.copiedCommand = "";
       Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: async (text) => { window.copiedCommand = text; } });
