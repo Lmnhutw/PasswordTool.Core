@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -482,22 +483,73 @@ public sealed partial class MainPage : Page
         var key = PasswordTool.Core.Services.RecoveryKeyService.Generate();
         var text = new TextBlock { Text = key, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), IsTextSelectionEnabled = false };
         var copy = new Button { Content = "Copy key securely" };
+        var countdown = new TextBlock { Text = "0", FontSize = 18, MinWidth = 28, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(countdown, "Seconds until clipboard clears");
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        long copiedAt = 0;
+        var closed = false;
+        void UpdateCountdown(object? sender, object args)
+        {
+            var remaining = Math.Max(0, (int)Math.Ceiling(30 - Stopwatch.GetElapsedTime(copiedAt).TotalSeconds));
+            countdown.Text = remaining.ToString();
+            if (remaining == 0)
+            {
+                timer.Stop();
+                copy.Content = "Copy key securely";
+            }
+        }
+        timer.Tick += UpdateCountdown;
         copy.Click += async (_, _) =>
         {
-            try { await sensitiveClipboard.CopyAsync(text.Text); }
-            catch (Exception) { copy.Content = "Clipboard unavailable"; }
+            if (closed || !copy.IsEnabled) return;
+            copy.IsEnabled = false;
+            try
+            {
+                var startedAt = Stopwatch.GetTimestamp();
+                await sensitiveClipboard.CopyAsync(text.Text);
+                if (closed) return;
+                copiedAt = startedAt;
+                copy.Content = "Copied";
+                timer.Stop();
+                UpdateCountdown(null, EventArgs.Empty);
+                timer.Start();
+            }
+            catch (Exception) { if (!closed) copy.Content = "Copy failed — click to retry"; }
+            finally { if (!closed) copy.IsEnabled = true; }
         };
         var saved = new CheckBox { Content = "I saved this key in a safe place outside this device." };
         var panel = new StackPanel { Spacing = 16 };
         panel.Children.Add(new TextBlock { Text = "This key can reset your Master Password and Authenticator. Old exported snapshots retain their old security credentials.", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(text);
-        panel.Children.Add(copy);
+        var copyRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        copyRow.Children.Add(copy);
+        copyRow.Children.Add(countdown);
+        panel.Children.Add(copyRow);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "The copied key is automatically cleared from the clipboard after 30 seconds. Copy again to restart the countdown. You can copy the key while this dialog is open; closing it clears the copied key.\n\nPaste with Ctrl+V. This key is excluded from Windows clipboard history.",
+            TextWrapping = TextWrapping.Wrap
+        });
         panel.Children.Add(saved);
         var dialog = new ContentDialog { Title = "Save Recovery Key", Content = panel, PrimaryButtonText = "Continue", CloseButtonText = "Cancel", IsPrimaryButtonEnabled = false };
         saved.Checked += (_, _) => dialog.IsPrimaryButtonEnabled = true;
         saved.Unchecked += (_, _) => dialog.IsPrimaryButtonEnabled = false;
-        try { return await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) == ContentDialogResult.Primary ? key : null; }
-        finally { text.Text = string.Empty; key = string.Empty; await sensitiveClipboard.ClearOwnedValueAsync(); }
+        var confirmed = false;
+        try
+        {
+            confirmed = await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) == ContentDialogResult.Primary;
+            return confirmed ? key : null;
+        }
+        finally
+        {
+            closed = true;
+            copy.IsEnabled = false;
+            timer.Stop();
+            timer.Tick -= UpdateCountdown;
+            text.Text = string.Empty;
+            key = string.Empty;
+            await sensitiveClipboard.ClearOwnedValueAsync();
+        }
     }
 
     private async void RotateRecoveryKeyButton_Click(object sender, RoutedEventArgs e)
@@ -538,6 +590,24 @@ public sealed partial class MainPage : Page
         long? wizardVersion = null;
         try
         {
+            var entryVersion = ViewModel.LifecycleVersion;
+            var explanation = new ContentDialog
+            {
+                Title = "Forgot Master Password?",
+                Content = new TextBlock
+                {
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = "PasswordTool cannot show or retrieve your Master Password.\n\n"
+                        + "If you saved your Recovery Key, you can use it to create a new Master Password and set up a new Authenticator. Your saved vault items are kept.\n\n"
+                        + "You will also receive a replacement Recovery Key. Save it before finishing; you will then return to Login. Without your current Recovery Key, these credentials cannot be reset."
+                },
+                PrimaryButtonText = "Enter Recovery Key",
+                CloseButtonText = "Back to Login",
+                DefaultButton = ContentDialogButton.Close
+            };
+            if (await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(explanation, CancellationToken.None) != ContentDialogResult.Primary
+                || entryVersion != ViewModel.LifecycleVersion || ViewModel.FlowState != AppFlowState.Unlock) return;
             ViewModel.BeginRecoveryKeyReset();
             var version = ViewModel.LifecycleVersion;
             wizardVersion = version;

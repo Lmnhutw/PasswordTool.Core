@@ -42,6 +42,8 @@ internal sealed class SensitiveClipboardService : ISensitiveClipboardService, ID
                 _ = ClearAfterDelayAsync(expiration.Token);
             }
 
+            // Publish the text before reporting success to external paste targets.
+            Clipboard.Flush();
             return Task.CompletedTask;
         });
     }
@@ -52,6 +54,7 @@ internal sealed class SensitiveClipboardService : ISensitiveClipboardService, ID
         cancellationToken.ThrowIfCancellationRequested();
         return RunOnUiThreadAsync(async () =>
         {
+            cancellationToken.ThrowIfCancellationRequested();
             byte[]? expected;
             long expectedGeneration;
             lock (sync)
