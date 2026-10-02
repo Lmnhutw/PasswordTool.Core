@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-02T00:00:00+07:00",
+  "title": "Design System: YourSafe website",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Cobalt ink" },
+      "paper": { "role": "neutral", "displayName": "Cool paper" }
+    },
+    "shadows": [{ "name": "screenshot", "value": "0 14px 35px #1823211a", "purpose": "Real application screenshot only." }],
+    "motion": [{ "name": "ease", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Cover, row and button movement; removed under reduced motion." }],
+    "breakpoints": [{ "name": "mobile", "value": "680px" }, { "name": "compact", "value": "960px" }]
+  },
+  "components": [{
+    "name": "Download link",
+    "kind": "button",
+    "refersTo": "button-primary",
+    "description": "Link to the actual Windows release list.",
+    "html": "<a class=\"button\" href=\"https://github.com/Lmnhutw/PasswordTool.Core/releases\">Tải cho Windows</a>",
+    "css": ".button { display: inline-flex; padding: 1rem 1.35rem; border-radius: 4px; background: #204bdb; color: #fff; font-family: sans-serif; font-weight: 700; text-decoration: none; min-height: 56px; align-items: center; } .button:hover { background: #1639ab; } .button:focus-visible { outline: 3px solid #204bdb; outline-offset: 5px; }"
+  }],
+  "narrative": {
+    "northStar": "A software field manual for YourSafe",
+    "overview": "A static Vietnamese download website with cool paper, cobalt fields, generous gutters and self-hosted type. Uses the actual packaged eye logo and an explicitly historical application capture.",
+    "keyCharacteristics": ["Ruled feature lists", "Sequential installation steps", "Progressive enhancement"],
+    "rules": [{ "name": "The Numbered Steps Rule", "body": "Numbers belong to the installation sequence, not decorative section labels.", "section": "layout" }],
+    "dos": ["Preserve the actual app logo.", "Keep downloads and navigation available without JavaScript."],
+    "donts": ["Do not fabricate screenshots or signing claims."]
+  }
+}

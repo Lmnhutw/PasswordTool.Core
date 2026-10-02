@@ -1,0 +1,35 @@
+name: Publish YourSafe website
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Stage static website only
+        run: |
+          mkdir -p "$RUNNER_TEMP/passwordtool-site"
+          cp website/index.html website/styles.css website/script.js "$RUNNER_TEMP/passwordtool-site/"
+          cp -R website/assets "$RUNNER_TEMP/passwordtool-site/assets"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/passwordtool-site
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
