@@ -17,7 +17,7 @@ public sealed class VaultWorkspaceViewModelTests : IDisposable
         var totp = new TotpService();
         var secret = totp.GenerateSecret();
         vault = new(new VaultStorageService(directory), new EncryptionService(), totp);
-        vault.InitializeNewVault("correct horse battery staple", secret, totp.GetCurrentCode(secret).Code);
+        vault.InitializeNewVault("correct horse battery staple", secret, totp.GetCurrentCode(secret).Code, RecoveryKeyService.Generate(), true);
         work = vault.AddGroup("Work", "#336699");
         personal = vault.AddGroup("Personal");
         vault.AddGroup("Empty");
@@ -39,6 +39,10 @@ public sealed class VaultWorkspaceViewModelTests : IDisposable
         workspace.ResetToDefaultView();
         Assert.False(workspace.CanClearFilters);
         Assert.True(workspace.IsVerticalTabs);
+        workspace.SearchText = "   ";
+        Assert.True(workspace.CanClearFilters);
+        workspace.ResetToDefaultView();
+        Assert.Equal(string.Empty, workspace.SearchText);
         workspace.SelectedSortOrder = workspace.SortOrders[1];
         Assert.True(workspace.CanClearFilters);
         workspace.ResetToDefaultView();
@@ -76,6 +80,7 @@ public sealed class VaultWorkspaceViewModelTests : IDisposable
         workspace.SelectGroup(Tab(personal.Id));
         Assert.Empty(workspace.Items);
         workspace.ResetToDefaultView();
+        workspace.FilterByGroup = true;
         workspace.SelectGroup(Tab(null));
         workspace.SelectedViewFilter = workspace.ViewFilters[3];
         Assert.Equal("Recovery", Assert.Single(workspace.Items).Title);
@@ -133,7 +138,7 @@ public sealed class VaultWorkspaceViewModelTests : IDisposable
         else if (trigger == "view") workspace.SelectedViewFilter = workspace.ViewFilters[0];
         else workspace.ResetToDefaultView();
         AssertDefaultView();
-        Assert.True(workspace.FilterByGroup);
+        Assert.Equal(trigger != "clear", workspace.FilterByGroup);
     }
 
     [Fact]

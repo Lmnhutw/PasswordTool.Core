@@ -133,30 +133,33 @@ public sealed class VaultStorageService
     {
         ArgumentNullException.ThrowIfNull(config);
         ValidateVaultPayload(encryptedVaultJson);
-        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true, verifyStagedState: null);
+        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true, verifyStagedState: null, beforeCommit: null);
     }
 
-    public void SaveStateVerified(AppConfig config, string encryptedVaultJson, Action<AppConfig, string> verifyStagedState)
+    public void SaveStateVerified(AppConfig config, string encryptedVaultJson, Action<AppConfig, string> verifyStagedState,
+        Action? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(verifyStagedState);
         ValidateVaultPayload(encryptedVaultJson);
-        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true, verifyStagedState);
+        SaveRawState(SerializeConfig(config), encryptedVaultJson, createSnapshot: true, verifyStagedState, beforeCommit);
     }
 
     public IReadOnlyList<VaultSnapshotInfo> GetSnapshots()
     {
         if (!Directory.Exists(SnapshotsDirectory)) return [];
+        var revision = LoadConfig().CredentialRevision;
         return Directory.EnumerateDirectories(SnapshotsDirectory)
             .Select(path => new DirectoryInfo(path))
             .Where(directory => File.Exists(Path.Combine(directory.FullName, ".config"))
                 && File.Exists(Path.Combine(directory.FullName, ".storage")))
             .OrderByDescending(directory => directory.Name, StringComparer.Ordinal)
-            .Select(directory => new VaultSnapshotInfo(directory.Name, ParseSnapshotTime(directory)))
+            .Select(directory => new VaultSnapshotInfo(directory.Name, ParseSnapshotTime(directory),
+                DeserializeConfig(File.ReadAllText(Path.Combine(directory.FullName, ".config"))).CredentialRevision != revision))
             .ToList();
     }
 
-    public void RestoreSnapshot(string snapshotId)
+    public void RestoreSnapshot(string snapshotId, Action? beforeCommit = null)
     {
         if (string.IsNullOrWhiteSpace(snapshotId)
             || !string.Equals(Path.GetFileName(snapshotId), snapshotId, StringComparison.Ordinal)
@@ -177,11 +180,12 @@ public sealed class VaultStorageService
         _ = DeserializeConfig(configJson);
         var vaultJson = File.ReadAllText(vaultPath);
         ValidateVaultPayload(vaultJson);
-        SaveRawState(configJson, vaultJson, createSnapshot: true, verifyStagedState: null);
+        SaveRawState(configJson, vaultJson, createSnapshot: true, verifyStagedState: null, beforeCommit);
         DeleteTrustedUnlockToken();
     }
 
-    private void SaveRawState(string configJson, string vaultJson, bool createSnapshot, Action<AppConfig, string>? verifyStagedState)
+    private void SaveRawState(string configJson, string vaultJson, bool createSnapshot,
+        Action<AppConfig, string>? verifyStagedState, Action? beforeCommit)
     {
         EnsureStorageDirectory();
         var oldConfig = File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath) : null;
@@ -199,10 +203,12 @@ public sealed class VaultStorageService
             ValidateVaultPayload(stagedVault);
             verifyStagedState?.Invoke(stagedConfig, stagedVault);
             stateWriteCheckpoint?.Invoke("verified");
+            beforeCommit?.Invoke();
             if (createSnapshot && oldConfig is not null && oldVault is not null)
             {
                 CreateSnapshot(oldConfig, oldVault);
             }
+            beforeCommit?.Invoke();
             WriteProtectedText(StateTransactionPath,
                 JsonSerializer.Serialize(new PendingStateTransaction(configJson, vaultJson), JsonOptions));
 

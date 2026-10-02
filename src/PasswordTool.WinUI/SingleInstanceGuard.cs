@@ -14,7 +14,12 @@ internal sealed class SingleInstanceGuard : IDisposable
 
     public static SingleInstanceGuard TryAcquire(out bool acquired)
     {
-        var mutex = new Mutex(initiallyOwned: true, MutexName, out acquired);
+        var name = MutexName;
+#if DEBUG
+        if (Environment.GetEnvironmentVariable("PASSWORDTOOL_UI_TEST_DIRECTORY") is { Length: > 0 } directory)
+            name += ".Test." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(directory))));
+#endif
+        var mutex = new Mutex(initiallyOwned: true, name, out acquired);
         return new SingleInstanceGuard(mutex, acquired);
     }
 

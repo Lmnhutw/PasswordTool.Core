@@ -20,7 +20,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         Guid itemId;
         using (var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp, utcNow: () => now))
         {
-            vault.InitializeNewVault(masterPassword, secret, code);
+            vault.InitializeNewVault(masterPassword, secret, code, RecoveryKeyService.Generate(), true);
             var item = vault.AddItem(new VaultItem
             {
                 Title = "Recovery only",
@@ -46,7 +46,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         var secret = totp.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
-        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
 
         var added = vault.AddItem(new VaultItem
         {
@@ -60,6 +60,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         Assert.Equal(["alpha-1234", "beta-5678"], vault.GetRecoveryCodes(added.Id, code));
 
         now = now.AddMinutes(1);
+        Assert.True(vault.UnlockWithMasterPassword("correct horse battery staple").Success);
         var edited = vault.GetItemForEditing(added.Id, code);
         edited.Notes = "Non-secret metadata changed.";
         vault.UpdateItem(edited);
@@ -68,6 +69,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         Assert.Equal(added.PasswordChangedAt, afterMetadataEdit.PasswordChangedAt);
 
         now = now.AddMinutes(1);
+        Assert.True(vault.UnlockWithMasterPassword("correct horse battery staple").Success);
         edited = vault.GetItemForEditing(added.Id, string.Empty);
         edited.Password = "second unique password";
         vault.UpdateItem(edited);
@@ -79,6 +81,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         Assert.Equal(["alpha-1234", "beta-5678"], vault.GetRecoveryCodes(added.Id, code));
 
         now = now.AddMinutes(1);
+        Assert.True(vault.UnlockWithMasterPassword("correct horse battery staple").Success);
         edited = vault.GetItemForEditing(added.Id, string.Empty);
         edited.Type = VaultItemType.RecoveryCodes;
         edited.Password = string.Empty;
@@ -89,6 +92,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         Assert.Empty(vault.GetPasswordHistory(added.Id, string.Empty));
 
         now = now.AddMinutes(1);
+        Assert.True(vault.UnlockWithMasterPassword("correct horse battery staple").Success);
         edited = vault.GetItemForEditing(added.Id, string.Empty);
         edited.Type = VaultItemType.Password;
         edited.Password = "third unique password";
@@ -149,6 +153,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         using var vault = new VaultService(storage, encryption, totp, utcNow: () => now);
         Assert.True(vault.TryUnlockMasterPassword(masterPassword, out var error), error);
         Assert.True(vault.VerifyTotpForSession(code));
+        vault.SaveRecoveryKey(masterPassword, RecoveryKeyService.Generate(), true);
         var normalizedHistoryItem = vault.GetItems().Single(item => item.Id == historyItemId);
         Assert.Equal(historyDate, normalizedHistoryItem.PasswordChangedAt);
         var findings = vault.GetSecurityFindings(string.Empty);
@@ -171,7 +176,7 @@ public sealed class VaultPasswordLifecycleTests : IDisposable
         var code = ComputeTotp(secret);
         using (var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now))
         {
-            vault.InitializeNewVault("correct horse battery staple", secret, code);
+            vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
             var added = vault.AddItem(new VaultItem { Title = "Backup", Password = "backup password" });
             var backupItems = new VaultBackupService().ReadBackup(vault.ExportBackupJson("backup passphrase", code), "backup passphrase");
             Assert.Equal(added.PasswordChangedAt, Assert.Single(backupItems).PasswordChangedAt);

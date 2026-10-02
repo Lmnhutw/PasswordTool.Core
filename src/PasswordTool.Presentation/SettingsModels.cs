@@ -3,7 +3,7 @@ using PasswordTool.Core.Models;
 namespace PasswordTool.Presentation;
 
 public sealed record SettingsSnapshot(
-    int InactivityTimeoutMinutes,
+    int VaultDurationMinutes,
     bool NeedsKdfUpgrade,
     DateTimeOffset? LastExternalBackupAt,
     DateTimeOffset? LastVerifiedBackupAt);

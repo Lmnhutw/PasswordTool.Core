@@ -18,6 +18,8 @@ public sealed record VaultItemEditorInput(
     bool HideUrl,
     bool HideNotes)
 {
+    public override string ToString() => nameof(VaultItemEditorInput);
+
     public VaultItem ToVaultItem()
     {
         var recoveryCodes = new List<string>();

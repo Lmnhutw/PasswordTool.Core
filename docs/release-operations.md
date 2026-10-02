@@ -129,9 +129,9 @@ Perform these checks against the exact qualified artifact. Record failures and u
 
 - **First launch:** Start with no PasswordTool vault files, create a vault, and confirm no network access is required.
 - **Existing-vault unlock:** Launch against a protected test vault at `%LocalAppData%\PasswordTool` and unlock with its Master Password.
-- **Lock/relock:** Exercise manual lock plus the applicable inactivity/session lifecycle, then unlock again and confirm sensitive state was cleared while locked.
-- **Session authorization:** Verify Master Password + TOTP is required to unlock; reveal/copy and other vault actions do not request another code; the session ends after five hours.
-- **Manual lock:** Verify Lock keeps the app open, clears decrypted vault state, and shows the in-app Unlock vault screen.
+- **Lock/relock:** Exercise manual lock and the fixed vault deadline, then unlock again and confirm sensitive state was cleared while locked. Activity must not extend either deadline.
+- **Session authorization:** Verify Login requires Master Password + TOTP and re-unlock during that Login requires only the Master Password. Reveal/copy and other vault actions do not request another code; Login ends after five hours.
+- **Manual lock:** Verify Lock keeps the app open and clears decrypted vault state. It shows Unlock Vault during a valid Login and Login after expiration.
 - **Backup verification:** Export an encrypted backup to an external test path and complete authenticated verification with the separate backup passphrase; confirm no passphrase or plaintext secrets appear in release files or logs.
 - **Security Check:** Run the local Security Check against known weak/reused/old test entries, edit through the protected workflow, and confirm the rescan updates without displaying password values.
 - **Offline launch:** Disconnect networking before launch and exercise unlock plus normal vault use. Confirm no update, telemetry, cloud, account, API, or other network prompt/dependency appears.

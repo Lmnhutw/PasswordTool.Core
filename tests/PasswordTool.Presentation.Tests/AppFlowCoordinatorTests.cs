@@ -14,7 +14,7 @@ public sealed class AppFlowCoordinatorTests
             var totp = new TotpService();
             var secret = totp.GenerateSecret();
             using var vault = new VaultService(new VaultStorageService(directory), new EncryptionService(), totp);
-            vault.InitializeNewVault("correct horse battery staple", secret, totp.GetCurrentCode(secret).Code);
+            vault.InitializeNewVault("correct horse battery staple", secret, totp.GetCurrentCode(secret).Code, RecoveryKeyService.Generate(), true);
             var runner = new DelayedResultRunner();
             var flow = new AppFlowCoordinator(vault, runner, totp);
             var read = flow.GetListItemsAsync();
@@ -71,7 +71,7 @@ public sealed class AppFlowCoordinatorTests
             var secret = totp.GenerateSecret();
             using var vault = new VaultService(new VaultStorageService(directory), new EncryptionService(), totp, utcNow: () => now);
             const string password = "correct horse battery staple";
-            vault.InitializeNewVault(password, secret, totp.GetCurrentCode(secret).Code);
+            vault.InitializeNewVault(password, secret, totp.GetCurrentCode(secret).Code, RecoveryKeyService.Generate(), true);
             using var runner = new VaultOperationRunner();
             var flow = new AppFlowCoordinator(vault, runner, totp);
             if (locked) await flow.LockAsync();
@@ -99,7 +99,7 @@ public sealed class AppFlowCoordinatorTests
             var secret = totp.GenerateSecret();
             using var vault = new VaultService(new VaultStorageService(directory), new EncryptionService(), totp);
             const string password = "correct horse battery staple";
-            vault.InitializeNewVault(password, secret, totp.GetCurrentCode(secret).Code);
+            vault.InitializeNewVault(password, secret, totp.GetCurrentCode(secret).Code, RecoveryKeyService.Generate(), true);
             var runner = new DelayedResultRunner();
             var flow = new AppFlowCoordinator(vault, runner, totp);
             var settings = new SettingsViewModel(flow, new UserErrorMapper());
@@ -137,7 +137,7 @@ public sealed class AppFlowCoordinatorTests
             var wrongCode = Enumerable.Range(0, 10).Select(i => i.ToString("D6"))
                 .First(candidate => !totp.VerifyCode(secret, candidate));
             using var vault = new VaultService(new VaultStorageService(directory), new EncryptionService(), totp);
-            vault.InitializeNewVault("correct horse battery staple", secret, code);
+            vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
             vault.ClearSession();
 
             using var runner = new VaultOperationRunner();

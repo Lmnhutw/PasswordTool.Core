@@ -36,6 +36,15 @@ public sealed partial class MainWindow : Window
 
         // Navigate the root frame to the main page on startup.
         RootFrame.Navigate(typeof(MainPage));
+#if DEBUG
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PASSWORDTOOL_UI_TEST_DIRECTORY")))
+        {
+            if (int.TryParse(Environment.GetEnvironmentVariable("PASSWORDTOOL_UI_TEST_WIDTH"), out var testWidth))
+                AppWindow.Resize(new SizeInt32((int)(Math.Max(MinimumLogicalWidth, testWidth) * scale), (int)(720 * scale)));
+            if (Enum.TryParse<ElementTheme>(Environment.GetEnvironmentVariable("PASSWORDTOOL_UI_TEST_THEME"), out var testTheme))
+                RootFrame.RequestedTheme = testTheme;
+        }
+#endif
     }
 
     private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)

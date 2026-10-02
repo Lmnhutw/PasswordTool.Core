@@ -6,6 +6,7 @@ public enum AppRoute
     SecurityCheck,
     Backup,
     HashTool,
+    Trash,
     Settings,
     ItemEditor
 }

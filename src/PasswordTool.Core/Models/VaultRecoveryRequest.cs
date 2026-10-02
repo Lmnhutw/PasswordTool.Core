@@ -11,6 +11,8 @@ public sealed class VaultRecoveryRequest
     public required string NewTotpSecretBase32 { get; init; }
 
     public required string TotpConfirmationCode { get; init; }
+    public required string RecoveryKey { get; init; }
+    public required bool RecoveryKeySaved { get; init; }
 
     public override string ToString() => nameof(VaultRecoveryRequest);
 }

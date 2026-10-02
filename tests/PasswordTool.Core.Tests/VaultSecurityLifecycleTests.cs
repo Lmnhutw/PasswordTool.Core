@@ -18,7 +18,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         var secret = totp.GenerateSecret();
         using var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp, utcNow: () => now);
         const string password = "correct horse battery staple";
-        vault.InitializeNewVault(password, secret, ComputeTotp(secret));
+        vault.InitializeNewVault(password, secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.AddItem(new VaultItem { Title = "Email", Password = "secret" });
         vault.LockVault();
         Assert.True(vault.IsSignInSessionActive);
@@ -81,7 +81,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         using var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totp,
             utcNow: () => expireDuringUnlock && ++clockReads > 1 ? now.AddHours(5) : now);
         const string password = "correct horse battery staple";
-        vault.InitializeNewVault(password, secret, ComputeTotp(secret));
+        vault.InitializeNewVault(password, secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.LockVault();
         expireDuringUnlock = true;
         Assert.False(vault.UnlockWithMasterPassword(password).Success);
@@ -97,7 +97,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         var totp = new TotpService();
         var secret = totp.GenerateSecret();
         using var vault = new VaultService(storage, new EncryptionService(), totp);
-        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.AddItem(new VaultItem { Title = "Email", Password = "account secret" });
 
         var vaultCiphertext = File.ReadAllText(storage.VaultPath);
@@ -149,13 +149,14 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         using var vault = new VaultService(storage, encryption, totp, utcNow: () => now);
         Assert.True(vault.TryUnlockMasterPassword(password, out var unlockError), unlockError);
         Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
-        Assert.False(vault.NeedsKdfUpgrade); // Automatic legacy migration also upgrades the KDF.
+        vault.SaveRecoveryKey(password, RecoveryKeyService.Generate(), true);
+        Assert.False(vault.NeedsKdfUpgrade);
         Assert.True(vault.TryUpgradeKdf(password, out var upgradeError), upgradeError);
 
         var upgraded = storage.LoadConfig();
         Assert.Equal(MasterPasswordService.Argon2idAlgorithm, upgraded.KdfAlgorithm);
-        Assert.Equal(25, upgraded.InactivityLockTimeoutMinutes);
-        Assert.Equal(3, upgraded.SensitiveActionTimeoutMinutes);
+        Assert.Equal(1, upgraded.InactivityLockTimeoutMinutes);
+        Assert.Equal(5, upgraded.SensitiveActionTimeoutMinutes);
         Assert.Equal(lastBackup, upgraded.LastExternalBackupAt);
         Assert.Equal(lastVerified, upgraded.LastVerifiedBackupAt);
     }
@@ -169,7 +170,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         var secret = totp.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
-        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
         now = now.AddDays(-400);
         var first = vault.AddItem(new VaultItem { Title = "Old weak account", Password = "duplicate" });
         var second = vault.AddItem(new VaultItem { Title = "Second weak account", Password = "duplicate" });
@@ -206,7 +207,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         var secret = totp.GenerateSecret();
         using var vault = new VaultService(storage, new EncryptionService(), totp);
         const string master = "correct horse battery staple";
-        vault.InitializeNewVault(master, secret, ComputeTotp(secret));
+        vault.InitializeNewVault(master, secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.AddItem(new VaultItem { Title = "First", Password = "first secret" });
         vault.AddItem(new VaultItem { Title = "Second", Password = "second secret" });
         var snapshot = vault.GetSnapshots().First();
@@ -231,7 +232,7 @@ public sealed class VaultSecurityLifecycleTests : IDisposable
         var newCode = ComputeTotp(newSecret);
         using var vault = new VaultService(storage, new EncryptionService(), totp);
         const string master = "correct horse battery staple";
-        vault.InitializeNewVault(master, oldSecret, oldCode);
+        vault.InitializeNewVault(master, oldSecret, oldCode, RecoveryKeyService.Generate(), true);
 
         var vaultCiphertext = File.ReadAllText(storage.VaultPath);
         Assert.True(vault.TryResetAuthenticator(master, newSecret, newCode, out var error), error);

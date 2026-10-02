@@ -23,7 +23,9 @@ public sealed partial class MainPage : Page
     private Guid? editingItemId;
     private string preservedTotpSecret = string.Empty;
     private AuthenticatorSetup? settingsAuthenticatorSetup;
-    private bool showingTrash;
+    private bool recoveryWizardInProgress;
+    private bool setupCompletionInProgress;
+    private bool rotatingRecoveryKey;
     private readonly DispatcherTimer signInTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private bool hadSignIn;
     private readonly Windows.UI.ViewManagement.AccessibilitySettings accessibility = new();
@@ -34,6 +36,8 @@ public sealed partial class MainPage : Page
         InitializeComponent();
         signInTimer.Tick += (_, _) =>
         {
+            if ((ViewModel.IsUnlocked || ViewModel.FlowState == AppFlowState.SaveRecoveryKey) && !ViewModel.IsVaultSessionActive)
+                SystemLockMonitor_LockRequired(this, EventArgs.Empty);
             if (ViewModel.IsSignedIn) hadSignIn = true;
             else if (hadSignIn)
             {
@@ -43,9 +47,11 @@ public sealed partial class MainPage : Page
         };
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         ViewModel.Vault.PropertyChanged += Vault_PropertyChanged;
-        Loaded += async (_, _) =>
+        Loaded += (_, _) =>
         {
             systemLockMonitor.LockRequired += SystemLockMonitor_LockRequired;
+            // SystemEvents initialization must run after XAML finishes the Loaded callback.
+            DispatcherQueue.TryEnqueue(systemLockMonitor.Start);
             signInTimer.Start();
             uiSettings.ColorValuesChanged += UiSettings_ColorValuesChanged;
             ApplyGroupTabPlacement();
@@ -66,18 +72,14 @@ public sealed partial class MainPage : Page
     public static bool HasSelection(object? value) => value is not null;
     public static Visibility EmptyVisibility(int count) => count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public static Visibility InvertBoolToVisibility(bool value) => value ? Visibility.Collapsed : Visibility.Visible;
-    public static HorizontalAlignment NotesRevealAlignment(bool hideNotes) => hideNotes ? HorizontalAlignment.Center : HorizontalAlignment.Right;
     public static string ItemAutomationId(string action, Guid id) => $"{action}_{id:N}";
     public static string GroupAutomationId(Guid? id) => id is null ? "Group_Ungrouped" : $"Group_{id:N}";
-    public static Brush GroupBrush(string? value) => string.IsNullOrWhiteSpace(value)
-        ? (Brush)Application.Current.Resources["VaultGroupBackgroundBrush"]
-        : new SolidColorBrush(Windows.UI.Color.FromArgb(255,
+    private static Brush GroupBrush(string value) => new SolidColorBrush(Windows.UI.Color.FromArgb(255,
             Convert.ToByte(value.Substring(1, 2), 16),
             Convert.ToByte(value.Substring(3, 2), 16),
             Convert.ToByte(value.Substring(5, 2), 16)));
-    public static Brush GroupTextBrush(string? value)
+    private static Brush GroupTextBrush(string value)
     {
-        if (string.IsNullOrWhiteSpace(value)) return (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
         var r = Convert.ToByte(value.Substring(1, 2), 16);
         var g = Convert.ToByte(value.Substring(3, 2), 16);
         var b = Convert.ToByte(value.Substring(5, 2), 16);
@@ -105,13 +107,9 @@ public sealed partial class MainPage : Page
     private void ApplyCredentialColumns(Grid grid)
     {
         if (grid is null || CredentialTable is null) return;
-        var width = CredentialTable.ActualWidth;
-        double[] widths = [108, 1.8, 1.5, 160, width >= 820 ? 100 : 0, width >= 1000 ? 1.4 : 0, width >= 1180 ? 170 : 0];
+        var widths = CredentialColumns.Calculate(CredentialTable.ActualWidth - 16);
         for (var index = 0; index < widths.Length; index++)
-            grid.ColumnDefinitions[index].Width = new GridLength(widths[index], index is 1 or 2 || index == 5 && widths[index] > 0 ? GridUnitType.Star : GridUnitType.Pixel);
-        foreach (var child in grid.Children.OfType<FrameworkElement>())
-            if (Grid.GetColumn(child) >= 4 && Grid.GetColumnSpan(child) == 1)
-                child.Visibility = widths[Grid.GetColumn(child)] > 0 ? Visibility.Visible : Visibility.Collapsed;
+            grid.ColumnDefinitions[index].Width = new GridLength(widths[index]);
     }
 
     private static void ApplyVaultIconHover(DependencyObject parent)
@@ -146,8 +144,7 @@ public sealed partial class MainPage : Page
     {
         if (sender is Button { Tag: VaultItemGroup group } button && group != ViewModel.Vault.SelectedGroup)
         {
-            button.Background = (Brush)Application.Current.Resources["VaultGroupHoverBrush"];
-            if (accessibility.HighContrast) button.Foreground = new SolidColorBrush((Windows.UI.Color)Application.Current.Resources["SystemColorHighlightTextColor"]);
+            button.Style = (Style)Resources["VaultHoverTabButtonStyle"];
         }
     }
 
@@ -176,9 +173,15 @@ public sealed partial class MainPage : Page
     {
         if (button.Tag is not VaultItemGroup group) return;
         var selected = group == ViewModel.Vault.SelectedGroup;
-        button.Background = selected ? GroupBrush(DisplayGroupColor(group)) : (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
-        button.Foreground = selected ? GroupTextBrush(DisplayGroupColor(group)) : (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
-        button.BorderBrush = (Brush)Application.Current.Resources[selected ? "AccentFillColorDefaultBrush" : "CardStrokeColorDefaultBrush"];
+        button.ClearValue(Control.BackgroundProperty);
+        button.ClearValue(Control.ForegroundProperty);
+        button.ClearValue(Control.BorderBrushProperty);
+        button.Style = (Style)Resources[selected ? "VaultSelectedTabButtonStyle" : "VaultTabButtonStyle"];
+        if (selected && DisplayGroupColor(group) is { Length: > 0 } color)
+        {
+            button.Background = GroupBrush(color);
+            button.Foreground = GroupTextBrush(color);
+        }
         button.BorderThickness = ViewModel.Vault.IsVerticalTabs ? new Thickness(1, 1, selected ? 0 : 1, 1) : new Thickness(1, 1, 1, selected ? 0 : 1);
         button.CornerRadius = ViewModel.Vault.IsVerticalTabs ? new CornerRadius(6, 0, 0, 6) : new CornerRadius(6, 6, 0, 0);
         button.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
@@ -191,7 +194,9 @@ public sealed partial class MainPage : Page
         UpdateGroupTab(AllGroupTab);
         for (var index = 0; index < ViewModel.Vault.GroupTabs.Count; index++)
             if (GroupTabsRepeater.TryGetElement(index) is Button button) UpdateGroupTab(button);
-        GroupTableFrame.Background = GroupBrush(DisplayGroupColor(ViewModel.Vault.SelectedGroup));
+        GroupTableFrame.ClearValue(Border.BackgroundProperty);
+        if (DisplayGroupColor(ViewModel.Vault.SelectedGroup) is { Length: > 0 } color)
+            GroupTableFrame.Background = GroupBrush(color);
     }
 
     private void GroupTab_Loaded(object sender, RoutedEventArgs e)
@@ -298,7 +303,7 @@ public sealed partial class MainPage : Page
 
     private async void UnlockButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!UnlockButton.IsEnabled) return;
+        if (!UnlockButton.IsEnabled || recoveryWizardInProgress) return;
         UnlockButton.IsEnabled = false;
         try
         {
@@ -309,6 +314,22 @@ public sealed partial class MainPage : Page
             if (code is null) return;
 
             await ViewModel.UnlockAsync(password, code);
+            if (ViewModel.FlowState == AppFlowState.SaveRecoveryKey)
+            {
+                var key = await ConfirmRecoveryKeyAsync();
+                try
+                {
+                    if (key is null) await ViewModel.LockCommand.ExecuteAsync(null);
+                    else await ViewModel.SaveRecoveryKeyAsync(password, key, true);
+                }
+                catch (OperationCanceledException) { await ViewModel.LockCommand.ExecuteAsync(null); }
+                catch (Exception)
+                {
+                    await ViewModel.LockCommand.ExecuteAsync(null);
+                    await dialogs.ShowErrorAsync("Recovery Key was not saved", "The vault remains locked. Sign in again to finish saving the Recovery Key.");
+                }
+                finally { key = null; }
+            }
             hadSignIn = ViewModel.IsSignedIn;
 
             if (ViewModel.IsUnlocked)
@@ -316,10 +337,11 @@ public sealed partial class MainPage : Page
                 MasterPasswordInput.Password = string.Empty;
             }
             ApplyShellState();
-            if (ViewModel.IsUnlocked) systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
         }
+        catch (OperationCanceledException) { }
         finally
         {
+            MasterPasswordInput.Password = string.Empty;
             UnlockButton.IsEnabled = true;
         }
     }
@@ -339,20 +361,22 @@ public sealed partial class MainPage : Page
         if (selectedItem?.Tag is not string tag) return;
         if (Enum.TryParse<AppRoute>(tag, out var route))
         {
-            showingTrash = false;
+            var version = ViewModel.LifecycleVersion;
             ViewModel.Navigate(route);
             if (route == AppRoute.Settings) await ViewModel.Settings.LoadAsync();
             if (route == AppRoute.Backup) await ViewModel.Backup.LoadAsync();
-            ApplyRoute(route);
+            if (route == AppRoute.Trash) await ViewModel.Trash.LoadAsync();
+            if (ViewModel.IsCurrentUnlock(version) && ViewModel.CurrentRoute == route) ApplyRoute(route);
         }
     }
 
     private async void LockVaultButton_Click(object sender, RoutedEventArgs e)
     {
         App.Services.GetRequiredService<DialogLifetime>().DismissAll();
-        systemLockMonitor.Stop();
-        await ViewModel.LockCommand.ExecuteAsync(null);
-        showingTrash = false;
+        var locking = ViewModel.LockCommand.ExecuteAsync(null);
+        var version = ViewModel.LifecycleVersion;
+        await locking;
+        if (version != ViewModel.LifecycleVersion) return;
         ClearEditor();
         ClearSettingsInputs();
         ClearBackupInputs();
@@ -400,28 +424,166 @@ public sealed partial class MainPage : Page
         ApplyShellState();
         if (ViewModel.FlowState == AppFlowState.SetupAuthenticator && ViewModel.PendingAuthenticatorSetup is { } setup)
         {
+            var version = ViewModel.LifecycleVersion;
+            var qr = await CreateQrBitmapAsync(setup.OtpAuthUri);
+            if (version != ViewModel.LifecycleVersion || ViewModel.FlowState != AppFlowState.SetupAuthenticator
+                || ViewModel.PendingAuthenticatorSetup != setup) return;
             AuthenticatorSecretText.Text = setup.SecretBase32;
-            AuthenticatorQrImage.Source = await CreateQrBitmapAsync(setup.OtpAuthUri);
+            AuthenticatorQrImage.Source = qr;
             AuthenticatorConfirmationInput.FocusFirst();
         }
     }
 
     private async void CompleteAuthenticatorButton_Click(object sender, RoutedEventArgs e)
     {
-        await ViewModel.CompleteAuthenticatorSetupAsync(
-            NewMasterPasswordInput.Password,
-            RecoveryPassphraseInput.Password,
-            AuthenticatorConfirmationInput.Code);
-        ApplyShellState();
-        if (!ViewModel.IsUnlocked) return;
-
-        ClearFirstLaunchInputs();
-        systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
+        if (setupCompletionInProgress) return;
+        setupCompletionInProgress = true;
+        var version = ViewModel.LifecycleVersion;
+        string? recoveryKey = null;
+        try
+        {
+            if (ViewModel.PendingAuthenticatorSetup is not { } setup
+                || !await ViewModel.ValidateAuthenticatorSetupAsync(setup, AuthenticatorConfirmationInput.Code))
+            {
+                await dialogs.ShowErrorAsync("Setup was not completed", "Authenticator setup could not be verified.");
+                return;
+            }
+            if (version != ViewModel.LifecycleVersion || ViewModel.FlowState != AppFlowState.SetupAuthenticator) return;
+            recoveryKey = await ConfirmRecoveryKeyAsync();
+            if (recoveryKey is null || version != ViewModel.LifecycleVersion || ViewModel.FlowState != AppFlowState.SetupAuthenticator) return;
+            await ViewModel.CompleteAuthenticatorSetupAsync(
+                NewMasterPasswordInput.Password,
+                RecoveryPassphraseInput.Password,
+                AuthenticatorConfirmationInput.Code,
+                recoveryKey,
+                true);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            recoveryKey = null;
+            if (version == ViewModel.LifecycleVersion)
+            {
+                ClearFirstLaunchInputs();
+                if (ViewModel.FlowState == AppFlowState.SetupAuthenticator) ViewModel.CancelFirstLaunchStep();
+                ApplyShellState();
+            }
+            setupCompletionInProgress = false;
+        }
     }
 
     private async void CopyAuthenticatorSecretButton_Click(object sender, RoutedEventArgs e)
     {
         if (ViewModel.PendingAuthenticatorSetup is { } setup) await sensitiveClipboard.CopyAsync(setup.SecretBase32);
+    }
+
+    private async Task<string?> ConfirmRecoveryKeyAsync()
+    {
+        var key = PasswordTool.Core.Services.RecoveryKeyService.Generate();
+        var text = new TextBlock { Text = key, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), IsTextSelectionEnabled = false };
+        var copy = new Button { Content = "Copy key securely" };
+        copy.Click += async (_, _) =>
+        {
+            try { await sensitiveClipboard.CopyAsync(text.Text); }
+            catch (Exception) { copy.Content = "Clipboard unavailable"; }
+        };
+        var saved = new CheckBox { Content = "I saved this key in a safe place outside this device." };
+        var panel = new StackPanel { Spacing = 16 };
+        panel.Children.Add(new TextBlock { Text = "This key can reset your Master Password and Authenticator. Old exported snapshots retain their old security credentials.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(text);
+        panel.Children.Add(copy);
+        panel.Children.Add(saved);
+        var dialog = new ContentDialog { Title = "Save Recovery Key", Content = panel, PrimaryButtonText = "Continue", CloseButtonText = "Cancel", IsPrimaryButtonEnabled = false };
+        saved.Checked += (_, _) => dialog.IsPrimaryButtonEnabled = true;
+        saved.Unchecked += (_, _) => dialog.IsPrimaryButtonEnabled = false;
+        try { return await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) == ContentDialogResult.Primary ? key : null; }
+        finally { text.Text = string.Empty; key = string.Empty; await sensitiveClipboard.ClearOwnedValueAsync(); }
+    }
+
+    private async void RotateRecoveryKeyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (rotatingRecoveryKey) return;
+        rotatingRecoveryKey = true;
+        var version = ViewModel.LifecycleVersion;
+        string? key = null;
+        try
+        {
+            if (!await ViewModel.ValidateMasterPasswordAsync(SettingsMasterPassword.Password) || !ViewModel.IsCurrentUnlock(version)
+                || ViewModel.CurrentRoute != AppRoute.Settings) return;
+            key = await ConfirmRecoveryKeyAsync();
+            if (key is null || !ViewModel.IsCurrentUnlock(version)) return;
+            await ViewModel.SaveRecoveryKeyAsync(SettingsMasterPassword.Password, key, true);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { await dialogs.ShowErrorAsync("Recovery Key was not changed", "Verify your Master Password and try again."); }
+        finally
+        {
+            key = null;
+            if (version == ViewModel.LifecycleVersion) SettingsMasterPassword.Password = string.Empty;
+            rotatingRecoveryKey = false;
+        }
+    }
+
+    private async void ForgotMasterPasswordButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (recoveryWizardInProgress) return;
+        recoveryWizardInProgress = true;
+        var recovery = new PasswordBox { Header = "Recovery Key" };
+        var password = new PasswordBox { Header = "New Master Password" };
+        var confirm = new PasswordBox { Header = "Confirm Master Password" };
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(recovery);
+        var dialog = new ContentDialog { Title = "Validate Recovery Key", Content = panel, PrimaryButtonText = "Continue", CloseButtonText = "Cancel" };
+        string? newKey = null;
+        long? wizardVersion = null;
+        try
+        {
+            ViewModel.BeginRecoveryKeyReset();
+            var version = ViewModel.LifecycleVersion;
+            wizardVersion = version;
+            if (await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) != ContentDialogResult.Primary) return;
+            await ViewModel.ValidateRecoveryKeyAsync(recovery.Password);
+            if (version != ViewModel.LifecycleVersion) return;
+            var passwordPanel = new StackPanel { Spacing = 12 };
+            passwordPanel.Children.Add(password);
+            passwordPanel.Children.Add(confirm);
+            var passwordDialog = new ContentDialog { Title = "Choose new Master Password", Content = passwordPanel, PrimaryButtonText = "Continue", CloseButtonText = "Cancel" };
+            if (await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(passwordDialog, CancellationToken.None) != ContentDialogResult.Primary
+                || version != ViewModel.LifecycleVersion) return;
+            ViewModel.PrepareRecoveryKeyReset(password.Password, confirm.Password);
+            newKey = await ConfirmRecoveryKeyAsync();
+            if (newKey is null || version != ViewModel.LifecycleVersion) return;
+            ViewModel.ConfirmRecoveryKeySaved(true);
+            var setup = ViewModel.Settings.PrepareAuthenticator();
+            var secret = setup.SecretBase32;
+            var qr = new Image { Width = 220, Height = 220, Source = await CreateQrBitmapAsync(setup.OtpAuthUri) };
+            var code = new SixDigitCodeInput();
+            var authPanel = new StackPanel { Spacing = 12 };
+            authPanel.Children.Add(qr);
+            authPanel.Children.Add(code);
+            var authDialog = new ContentDialog { Title = "Set up new Authenticator", Content = authPanel, PrimaryButtonText = "Reset credentials", CloseButtonText = "Cancel" };
+            try
+            {
+                if (version != ViewModel.LifecycleVersion) return;
+                if (await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(authDialog, CancellationToken.None) != ContentDialogResult.Primary) return;
+                await ViewModel.ResetWithRecoveryKeyAsync(new RecoveryKeyResetRequest(recovery.Password, password.Password, newKey, true, secret, code.Code));
+                ApplyShellState();
+            }
+            finally { secret = string.Empty; code.Clear(); qr.Source = null; }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { await dialogs.ShowErrorAsync("Reset was not completed", "Check the Recovery Key, matching passwords, and current Authenticator code. No incomplete credential changes were saved."); }
+        finally
+        {
+            recovery.Password = password.Password = confirm.Password = string.Empty;
+            newKey = null;
+            if (wizardVersion == ViewModel.LifecycleVersion)
+            {
+                ViewModel.CancelRecoveryKeyReset();
+                ApplyShellState();
+            }
+            recoveryWizardInProgress = false;
+        }
     }
 
     private void BackToWelcomeButton_Click(object sender, RoutedEventArgs e)
@@ -448,18 +610,26 @@ public sealed partial class MainPage : Page
             if (Interlocked.Exchange(ref lifecycleLockInProgress, 1) != 0) return;
             try
             {
-                systemLockMonitor.Stop();
+                var wasFirstLaunch = ViewModel.FlowState is AppFlowState.FirstLaunch or AppFlowState.CreateMasterPassword or AppFlowState.SetupAuthenticator
+                    || ViewModel.FlowState == AppFlowState.Recover && !ViewModel.HasPartialStorage;
+                var wasPartialStorage = ViewModel.FlowState == AppFlowState.Recover && ViewModel.HasPartialStorage;
                 App.Services.GetRequiredService<DialogLifetime>().DismissAll();
-                await ViewModel.LockCommand.ExecuteAsync(null);
-                showingTrash = false;
+                var locking = ViewModel.LockCommand.ExecuteAsync(null);
+                var version = ViewModel.LifecycleVersion;
+                await locking;
+                if (version != ViewModel.LifecycleVersion) return;
+                if (wasFirstLaunch) ViewModel.CancelFirstLaunchStep();
+                else if (wasPartialStorage) ViewModel.BeginRecovery();
                 ClearEditor();
                 ClearSettingsInputs();
                 ClearBackupInputs();
+                ClearFirstLaunchInputs();
                 ApplyShellState();
                 MasterPasswordInput.Focus(FocusState.Programmatic);
             }
             finally
             {
+                systemLockMonitor.Start();
                 Interlocked.Exchange(ref lifecycleLockInProgress, 0);
             }
         });
@@ -476,7 +646,7 @@ public sealed partial class MainPage : Page
         CreateMasterPasswordPanel.Visibility = Visibility.Collapsed;
         SetupAuthenticatorPanel.Visibility = Visibility.Collapsed;
         UnlockPanel.Visibility = Visibility.Collapsed;
-        UnlockHeading.Text = ViewModel.IsSignedIn ? "Vault locked" : "Sign in";
+        UnlockHeading.Text = ViewModel.IsSignedIn ? "Unlock Vault" : "Login";
         UnlockDescription.Text = ViewModel.IsSignedIn
             ? "Enter your Master Password to unlock the vault."
             : "Enter your Master Password and Google Authenticator code to sign in.";
@@ -490,6 +660,8 @@ public sealed partial class MainPage : Page
             ClearBackupInputs();
             MasterPasswordInput.Password = string.Empty;
             App.Services.GetRequiredService<DialogLifetime>().DismissAll();
+            if (ViewModel.FlowState is AppFlowState.Unlock or AppFlowState.FirstLaunch)
+                ClearFirstLaunchInputs();
             switch (ViewModel.FlowState)
             {
                 case AppFlowState.Loading:
@@ -516,6 +688,7 @@ public sealed partial class MainPage : Page
             }
         }
 
+        AuthenticationCard.Width = UnlockPanel.Visibility == Visibility.Visible ? 460 : 600;
         ApplyRoute(ViewModel.CurrentRoute);
     }
 
@@ -550,30 +723,36 @@ public sealed partial class MainPage : Page
         using var data = generator.CreateQrCode(value, QRCodeGenerator.ECCLevel.Q);
         using var qrCode = new PngByteQRCode(data);
         var png = qrCode.GetGraphic(12);
-        using var stream = new InMemoryRandomAccessStream();
-        using (var writer = new DataWriter(stream))
+        try
         {
-            writer.WriteBytes(png);
-            await writer.StoreAsync();
-            writer.DetachStream();
+            using var stream = new InMemoryRandomAccessStream();
+            using (var writer = new DataWriter(stream))
+            {
+                writer.WriteBytes(png);
+                await writer.StoreAsync();
+                writer.DetachStream();
+            }
+            stream.Seek(0);
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(stream);
+            return bitmap;
         }
-        stream.Seek(0);
-        var bitmap = new BitmapImage();
-        await bitmap.SetSourceAsync(stream);
-        return bitmap;
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(png); }
     }
 
     private void ApplyRoute(AppRoute route)
     {
-        WorkspaceContent.MaxWidth = route == AppRoute.Vault && !showingTrash ? double.PositiveInfinity : 1200;
+        WorkspaceContent.MaxWidth = double.PositiveInfinity;
         if (route == AppRoute.ItemEditor) ShellNavigation.SelectedItem = null;
-        VaultPage.Visibility = route == AppRoute.Vault && !showingTrash ? Visibility.Visible : Visibility.Collapsed;
-        TrashPage.Visibility = route == AppRoute.Vault && showingTrash ? Visibility.Visible : Visibility.Collapsed;
+        VaultPage.Visibility = route == AppRoute.Vault ? Visibility.Visible : Visibility.Collapsed;
+        TrashPage.Visibility = route == AppRoute.Trash ? Visibility.Visible : Visibility.Collapsed;
         EditorPage.Visibility = route == AppRoute.ItemEditor ? Visibility.Visible : Visibility.Collapsed;
         HashToolPage.Visibility = route == AppRoute.HashTool ? Visibility.Visible : Visibility.Collapsed;
         BackupPage.Visibility = route == AppRoute.Backup ? Visibility.Visible : Visibility.Collapsed;
         SecurityCheckPage.Visibility = route == AppRoute.SecurityCheck ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = route == AppRoute.Settings ? Visibility.Visible : Visibility.Collapsed;
+        if (route == AppRoute.Settings)
+            VaultDurationInput.SelectedIndex = Array.IndexOf(new[] { 1, 2, 5, 10, 30, 60, 120, 300 }, (int)ViewModel.Settings.VaultDurationMinutes);
     }
 
     private void AddItemButton_Click(object sender, RoutedEventArgs e)
@@ -646,15 +825,15 @@ public sealed partial class MainPage : Page
         return await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) == ContentDialogResult.Primary ? input.Text : null;
     }
 
-    private async Task OpenEditorAsync(Guid itemId)
+    private async Task OpenEditorAsync(Guid itemId, bool duplicate = false)
     {
         var version = ViewModel.LifecycleVersion;
         var item = await ViewModel.GetItemForEditingAsync(itemId);
         if (item is null || !ViewModel.IsCurrentUnlock(version)) return;
 
-        editingItemId = item.Id;
-        EditorTitle.Text = "Edit item";
-        EditorItemTitle.Text = item.Title;
+        editingItemId = duplicate ? null : item.Id;
+        EditorTitle.Text = duplicate ? "Duplicate item" : "Edit item";
+        EditorItemTitle.Text = item.Title + (duplicate ? " (copy)" : string.Empty);
         EditorUsername.Text = item.Username;
         EditorPassword.Password = item.Password;
         EditorRecoveryCodes.Text = string.Join(Environment.NewLine, item.RecoveryCodes);
@@ -671,15 +850,73 @@ public sealed partial class MainPage : Page
         EditorItemTitle.Focus(FocusState.Programmatic);
     }
 
+    private void MoreItemActions_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Guid id } button) return;
+        var flyout = new MenuFlyout();
+        void Add(string title, RoutedEventHandler handler, Symbol? icon = null)
+        {
+            var menu = new MenuFlyoutItem { Text = title, Tag = id };
+            if (icon is { } symbol) menu.Icon = new SymbolIcon(symbol);
+            menu.Click += handler;
+            flyout.Items.Add(menu);
+        }
+        Add("View details", async (_, _) => await ShowItemDetailsAsync(id), Symbol.View);
+        Add("Duplicate", async (_, _) => await OpenEditorAsync(id, duplicate: true), Symbol.Copy);
+        Add("Move to group", async (_, _) => await MoveItemToGroupAsync(id), Symbol.Folder);
+        if (ViewModel.Vault.Items.Any(item => item.Id == id && item.HasPassword))
+            Add("History", PasswordHistoryRowMenuItem_Click, Symbol.Clock);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        Add("Delete", TrashRowMenuItem_Click, Symbol.Delete);
+        ((MenuFlyoutItem)flyout.Items[^1]).Foreground = (Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
+        flyout.ShowAt(button);
+    }
+
+    private async Task MoveItemToGroupAsync(Guid id)
+    {
+        var version = ViewModel.LifecycleVersion;
+        var item = await ViewModel.GetItemForEditingAsync(id);
+        if (item is null || !ViewModel.IsCurrentUnlock(version)) return;
+        var picker = new ComboBox { Header = "Group", ItemsSource = ViewModel.Vault.GroupOptions.Where(group => !group.CreatesNew).ToList(), DisplayMemberPath = "Label" };
+        picker.SelectedItem = ((IEnumerable<VaultGroupOption>)picker.ItemsSource).FirstOrDefault(group => group.GroupId == item.GroupId);
+        var dialog = new ContentDialog { Title = "Move to group", Content = picker, PrimaryButtonText = "Move", CloseButtonText = "Cancel" };
+        if (await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None) != ContentDialogResult.Primary
+            || !ViewModel.IsCurrentUnlock(version) || picker.SelectedItem is not VaultGroupOption selected) return;
+        await ViewModel.MoveItemToGroupAsync(id, selected.GroupId);
+    }
+
+    private async Task ShowItemDetailsAsync(Guid id)
+    {
+        var version = ViewModel.LifecycleVersion;
+        var item = ViewModel.Vault.Items.FirstOrDefault(item => item.Id == id);
+        if (item is null || !ViewModel.IsCurrentUnlock(version)) return;
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(new TextBlock { Text = $"Title: {item.Title}\nUsername: {item.Username}\nURL: {item.Url}\nUpdated: {item.UpdatedDisplay}", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "Recovery codes belong to the external account. They do not reset PasswordTool.", TextWrapping = TextWrapping.Wrap });
+        var dialog = new ContentDialog { Title = "View details", Content = panel, CloseButtonText = "Close" };
+        void Reveal(string label, Func<Task> action)
+        {
+            var reveal = new Button { Content = label };
+            reveal.Click += async (_, _) => { dialog.Hide(); await action(); };
+            panel.Children.Add(reveal);
+        }
+        if (item.HasPassword) Reveal("Reveal password", () => ViewModel.RevealPasswordAsync(id));
+        if (item.HasRecoveryCodes) Reveal("Reveal account recovery codes", () => ViewModel.RevealRecoveryCodesAsync(id));
+        if (item.HasNotes) Reveal("View notes", () => ViewModel.RevealNotesAsync(id));
+        await App.Services.GetRequiredService<DialogLifetime>().ShowAsync(dialog, CancellationToken.None);
+    }
+
     private async void SaveEditorButton_Click(object sender, RoutedEventArgs e)
     {
+        var version = ViewModel.LifecycleVersion;
+        if (!ViewModel.IsCurrentUnlock(version) || ViewModel.CurrentRoute != AppRoute.ItemEditor) return;
         var groupOption = EditorGroup.SelectedItem as VaultGroupOption ?? ViewModel.Vault.GroupOptions[0];
         if (groupOption.CreatesNew)
         {
             var name = await PromptAsync("Create group", "Group name", string.Empty);
-            if (name is null) return;
+            if (name is null || !ViewModel.IsCurrentUnlock(version) || ViewModel.CurrentRoute != AppRoute.ItemEditor) return;
             var group = await ViewModel.CreateGroupAsync(name);
-            if (group is null) return;
+            if (group is null || !ViewModel.IsCurrentUnlock(version) || ViewModel.CurrentRoute != AppRoute.ItemEditor) return;
             groupOption = ViewModel.Vault.GroupOptions.First(option => option.GroupId == group.Id);
         }
         var saved = await ViewModel.SaveItemAsync(new VaultItemEditorInput(
@@ -696,7 +933,7 @@ public sealed partial class MainPage : Page
             EditorFavorite.IsChecked == true,
             EditorHideUrl.IsChecked == true,
             EditorHideNotes.IsChecked == true));
-        if (!saved) return;
+        if (!saved || !ViewModel.IsCurrentUnlock(version)) return;
         ClearEditor();
         ApplyRoute(AppRoute.Vault);
     }
@@ -796,16 +1033,9 @@ public sealed partial class MainPage : Page
 
     private static Guid? GetItemId(object sender) => (sender as FrameworkElement)?.Tag is Guid id ? id : null;
 
-    private async void OpenTrashButton_Click(object sender, RoutedEventArgs e)
-    {
-        showingTrash = true;
-        await ViewModel.Trash.LoadAsync();
-        ApplyRoute(AppRoute.Vault);
-    }
-
     private void CloseTrashButton_Click(object sender, RoutedEventArgs e)
     {
-        showingTrash = false;
+        ViewModel.Navigate(AppRoute.Vault);
         ApplyRoute(AppRoute.Vault);
     }
 
@@ -865,11 +1095,10 @@ public sealed partial class MainPage : Page
 
     private async void SaveSettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        if (!await ViewModel.Settings.SaveAsync(SettingsMasterPassword.Password)) return;
-        SettingsMasterPassword.Password = string.Empty;
-        ViewModel.InactivityTimeout = TimeSpan.FromMinutes(ViewModel.Settings.InactivityTimeoutMinutes);
-        ViewModel.VaultOpenDuration = TimeSpan.FromHours(5);
-        systemLockMonitor.Start(ViewModel.InactivityTimeout, ViewModel.VaultOpenDuration);
+        if (VaultDurationInput.SelectedIndex < 0) return;
+        ViewModel.Settings.VaultDurationMinutes = new[] { 1, 2, 5, 10, 30, 60, 120, 300 }[VaultDurationInput.SelectedIndex];
+        try { await ViewModel.Settings.SaveAsync(SettingsMasterPassword.Password); }
+        finally { SettingsMasterPassword.Password = string.Empty; }
     }
 
     private async void ChangeMasterPasswordButton_Click(object sender, RoutedEventArgs e)
@@ -893,10 +1122,10 @@ public sealed partial class MainPage : Page
     private async void PrepareAuthenticatorResetButton_Click(object sender, RoutedEventArgs e)
     {
         var version = ViewModel.LifecycleVersion;
-        settingsAuthenticatorSetup = ViewModel.Settings.PrepareAuthenticator();
-        SettingsAuthenticatorSecret.Text = settingsAuthenticatorSetup.SecretBase32;
-        var bitmap = await CreateQrBitmapAsync(settingsAuthenticatorSetup.OtpAuthUri);
-        if (!ViewModel.IsCurrentUnlock(version)) return;
+        var setup = settingsAuthenticatorSetup = ViewModel.Settings.PrepareAuthenticator();
+        var bitmap = await CreateQrBitmapAsync(setup.OtpAuthUri);
+        if (!ViewModel.IsCurrentUnlock(version) || settingsAuthenticatorSetup != setup) return;
+        SettingsAuthenticatorSecret.Text = setup.SecretBase32;
         SettingsAuthenticatorQr.Source = bitmap;
         SettingsAuthenticatorQr.Visibility = Visibility.Visible;
         AuthenticatorResetCode.FocusFirst();
@@ -948,7 +1177,6 @@ public sealed partial class MainPage : Page
     {
         if (!await ViewModel.Backup.RestoreSnapshotAsync(SnapshotMasterPassword.Password)) return;
         SnapshotMasterPassword.Password = string.Empty;
-        systemLockMonitor.Stop();
         await ViewModel.LockCommand.ExecuteAsync(null);
         ClearEditor();
         ClearSettingsInputs();

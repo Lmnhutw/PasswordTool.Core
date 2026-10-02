@@ -47,8 +47,9 @@ public sealed partial class TrashViewModel(
 
     public async Task PermanentlyDeleteSelectedAsync()
     {
+        var version = flow.LifecycleVersion;
         if (SelectedItem is not { } item) return;
-        if (!await dialogs.ConfirmAsync("Delete permanently", $"Permanently delete '{item.Title}'? This cannot be undone.", "Delete permanently")) return;
+        if (!await dialogs.ConfirmAsync("Delete permanently", $"Permanently delete '{item.Title}'? This cannot be undone.", "Delete permanently") || !flow.IsCurrentUnlock(version)) return;
         try
         {
             await flow.PermanentlyDeleteItemAsync(item.Id, string.Empty);
@@ -62,6 +63,7 @@ public sealed partial class TrashViewModel(
 
     private void ShowError(Exception exception)
     {
+        if (exception is OperationCanceledException) return;
         ErrorMessage = errorMapper.Map(exception);
         IsErrorOpen = true;
     }

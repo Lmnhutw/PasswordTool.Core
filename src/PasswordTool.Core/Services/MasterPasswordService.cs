@@ -80,7 +80,7 @@ public sealed class MasterPasswordService
         try
         {
             slot.WrappedVaultKey = encryptionService.EncryptKey(vaultKey, kek, MasterKeyContext);
-            config.Version = 3;
+            config.Version = Math.Max(3, config.Version);
             config.MasterKeySlot = slot;
             config.KdfAlgorithm = slot.KdfAlgorithm;
             config.KdfIterations = slot.KdfIterations;
@@ -161,6 +161,7 @@ public sealed class MasterPasswordService
         byte[]? kek = null;
         try
         {
+            if (config.Version is < 1 or > 4) throw new NotSupportedException("Unsupported vault configuration version.");
             if (config.Version >= 3)
             {
                 var slot = config.MasterKeySlot ?? throw new InvalidOperationException("The Master Password key slot is missing.");

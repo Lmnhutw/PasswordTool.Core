@@ -11,18 +11,18 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
     private readonly string tempDirectory = Path.Combine(Path.GetTempPath(), "PasswordTool.Envelope.Tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void New_vault_uses_v3_envelope_format_and_purpose_bound_ciphertexts()
+    public void New_vault_uses_v4_envelope_format_and_purpose_bound_ciphertexts()
     {
         var storage = new VaultStorageService(tempDirectory);
         var encryption = new EncryptionService();
         var totp = new TotpService();
         var secret = totp.GenerateSecret();
         using var vault = new VaultService(storage, encryption, totp);
-        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.AddItem(new VaultItem { Title = "Email", Password = "envelope-only-secret" });
 
         var config = storage.LoadConfig();
-        Assert.Equal(3, config.Version);
+        Assert.Equal(4, config.Version);
         Assert.NotNull(config.MasterKeySlot);
         Assert.False(string.IsNullOrWhiteSpace(config.MasterKeySlot!.WrappedVaultKey));
         Assert.DoesNotContain(secret, File.ReadAllText(storage.ConfigPath));
@@ -52,18 +52,21 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
         using var vault = new VaultService(storage, encryption, totp);
         var result = vault.UnlockWithMasterPassword(password);
 
-        Assert.Equal(VaultUnlockStatus.UnlockedAndMigrated, result.Status);
+        Assert.Equal(VaultUnlockStatus.UnlockedMigrationDeferred, result.Status);
+        Assert.Equal(oldConfig, File.ReadAllText(storage.ConfigPath));
         Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
-        Assert.Equal(3, storage.LoadConfig().Version);
+        vault.SaveRecoveryKey(password, RecoveryKeyService.Generate(), true);
+        Assert.Equal(4, storage.LoadConfig().Version);
         Assert.Equal("legacy password", vault.GetPassword(vault.GetItems().Single().Id, ComputeTotp(secret)));
         var snapshot = Assert.Single(storage.GetSnapshots());
         Assert.Equal(oldConfig, File.ReadAllText(Path.Combine(storage.SnapshotsDirectory, snapshot.Id, ".config")));
 
         Assert.True(vault.TryRestoreSnapshot(snapshot.Id, password, out var restoreError), restoreError);
         var remigration = vault.UnlockWithMasterPassword(password);
-        Assert.Equal(VaultUnlockStatus.UnlockedAndMigrated, remigration.Status);
+        Assert.Equal(VaultUnlockStatus.UnlockedMigrationDeferred, remigration.Status);
         Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
-        Assert.Equal(3, storage.LoadConfig().Version);
+        vault.SaveRecoveryKey(password, RecoveryKeyService.Generate(), true);
+        Assert.Equal(4, storage.LoadConfig().Version);
     }
 
     [Theory]
@@ -90,9 +93,10 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
 
         Assert.Equal(VaultUnlockStatus.UnlockedMigrationDeferred, result.Status);
         Assert.True(vault.VerifyTotpForSession(ComputeTotp(secret)));
+        Assert.Throws<IOException>(() => vault.SaveRecoveryKey(password, RecoveryKeyService.Generate(), true));
         Assert.Equal(oldConfig, File.ReadAllText(initial.ConfigPath));
         Assert.Equal(oldVault, File.ReadAllText(initial.VaultPath));
-        Assert.Single(vault.GetItems());
+        Assert.Throws<InvalidOperationException>(() => vault.GetItems());
     }
 
     [Fact]
@@ -105,7 +109,7 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
         var totp = new TotpService();
         var secret = totp.GenerateSecret();
         using var vault = new VaultService(storage, encryption, totp);
-        vault.InitializeNewVault(password, secret, ComputeTotp(secret));
+        vault.InitializeNewVault(password, secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.AddItem(new VaultItem { Title = "KDF", Password = "kdf secret" });
 
         var config = storage.LoadConfig();
@@ -142,7 +146,7 @@ public sealed class VaultEnvelopeEncryptionTests : IDisposable
         var secret = totp.GenerateSecret();
         var code = ComputeTotp(secret);
         using (var vault = new VaultService(storage, encryption, totp))
-            vault.InitializeNewVault("correct horse battery staple", secret, code);
+            vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
 
         var token = storage.LoadTrustedUnlockToken();
         Assert.Equal(2, token.Version);

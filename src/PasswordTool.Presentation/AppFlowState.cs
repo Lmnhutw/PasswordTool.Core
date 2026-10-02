@@ -7,6 +7,11 @@ public enum AppFlowState
     Recover,
     CreateMasterPassword,
     SetupAuthenticator,
+    SaveRecoveryKey,
+    RecoveryKeyValidation,
+    RecoveryMasterPassword,
+    RecoveryKeySave,
+    RecoveryAuthenticator,
     Unlock,
     Unlocked
 }

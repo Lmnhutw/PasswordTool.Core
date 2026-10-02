@@ -55,8 +55,6 @@ public sealed partial class ShellViewModel : ObservableObject
     [ObservableProperty] public partial AppRoute CurrentRoute { get; set; } = AppRoute.Vault;
     [ObservableProperty] public partial string StatusMessage { get; set; } = string.Empty;
     [ObservableProperty] public partial bool IsStatusOpen { get; set; }
-    [ObservableProperty] public partial TimeSpan InactivityTimeout { get; set; } = TimeSpan.FromMinutes(1);
-    [ObservableProperty] public partial TimeSpan VaultOpenDuration { get; set; } = TimeSpan.FromHours(5);
     [ObservableProperty] public partial bool IsRecovering { get; set; }
     [ObservableProperty] public partial bool IsBackupReminderOpen { get; set; }
     [ObservableProperty] public partial string RecoveryPath { get; set; } = string.Empty;
@@ -65,6 +63,50 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public bool IsUnlocked => FlowState == AppFlowState.Unlocked;
     public bool IsSignedIn => flow.IsSignedIn;
+    public bool IsVaultSessionActive => flow.IsVaultSessionActive;
+    public bool NeedsRecoveryKey => flow.NeedsRecoveryKey;
+    public Task<bool> ValidateAuthenticatorSetupAsync(AuthenticatorSetup setup, string code) => flow.ValidateAuthenticatorSetupAsync(setup, code);
+    public async Task SaveRecoveryKeyAsync(string password, string key, bool saved)
+    {
+        var version = LifecycleVersion;
+        await flow.SaveRecoveryKeyAsync(password, key, saved);
+        if (version != LifecycleVersion || !flow.IsVaultSessionActive) return;
+        FlowState = flow.FlowState;
+        await CompleteUnlockAsync(new VaultUnlockResult(VaultUnlockStatus.Unlocked));
+    }
+    public void BeginRecoveryKeyReset()
+    {
+        flow.BeginRecoveryKeyReset();
+        FlowState = flow.FlowState;
+        ClearAuthenticationStatus();
+    }
+    public async Task ValidateRecoveryKeyAsync(string key)
+    {
+        await flow.ValidateRecoveryKeyAsync(key);
+        FlowState = flow.FlowState;
+    }
+    public void PrepareRecoveryKeyReset(string masterPassword, string confirmation)
+    {
+        flow.PrepareRecoveryKeyReset(masterPassword, confirmation);
+        FlowState = flow.FlowState;
+    }
+    public void ConfirmRecoveryKeySaved(bool saved)
+    {
+        flow.ConfirmRecoveryKeySaved(saved);
+        FlowState = flow.FlowState;
+    }
+    public void CancelRecoveryKeyReset()
+    {
+        flow.CancelRecoveryKeyReset();
+        PendingAuthenticatorSetup = null;
+        FlowState = flow.FlowState;
+        ClearAuthenticationStatus();
+    }
+    public async Task ResetWithRecoveryKeyAsync(RecoveryKeyResetRequest request)
+    {
+        await flow.ResetWithRecoveryKeyAsync(request);
+        await LockAsync();
+    }
     public long LifecycleVersion => flow.LifecycleVersion;
     public bool IsCurrentUnlock(long version) => flow.IsCurrentUnlock(version) && IsUnlocked;
     public bool HasPartialStorage => flow.HasPartialStorage;
@@ -73,21 +115,27 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task<bool> ValidateMasterPasswordAsync(string masterPassword)
     {
+        var version = LifecycleVersion;
         IsStatusOpen = false;
         try
         {
-            if (await flow.ValidateMasterPasswordAsync(masterPassword)) return true;
+            var valid = await flow.ValidateMasterPasswordAsync(masterPassword);
+            if (version != LifecycleVersion) return false;
+            if (valid) return true;
             StatusMessage = "The Master Password is incorrect. Please try again.";
             IsStatusOpen = true;
         }
-        catch (Exception exception) { ShowMappedError(exception); }
+        catch (Exception exception) { if (version == LifecycleVersion) ShowMappedError(exception); }
         return false;
     }
 
     public async Task UnlockAsync(string masterPassword, string totpCode)
     {
         IsStatusOpen = false;
-        var result = await flow.UnlockAsync(masterPassword, totpCode);
+        var operation = flow.UnlockAsync(masterPassword, totpCode);
+        var version = LifecycleVersion;
+        var result = await operation;
+        if (version != LifecycleVersion) return;
         FlowState = flow.FlowState;
         if (!result.Success)
         {
@@ -96,7 +144,7 @@ public sealed partial class ShellViewModel : ObservableObject
             return;
         }
 
-        try { await CompleteUnlockAsync(result); }
+        try { if (!NeedsRecoveryKey) await CompleteUnlockAsync(result); }
         catch (OperationCanceledException) { }
     }
 
@@ -118,21 +166,24 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task SelectRecoveryFileAsync()
     {
+        var version = LifecycleVersion;
         var path = await filePicker.PickOpenPathAsync();
-        if (!string.IsNullOrWhiteSpace(path)) RecoveryPath = path;
+        if (version == LifecycleVersion && FlowState == AppFlowState.Recover && !string.IsNullOrWhiteSpace(path)) RecoveryPath = path;
     }
 
     public async Task InspectRecoveryAsync(string passphrase)
     {
+        var version = LifecycleVersion;
         try
         {
             var inspection = await flow.InspectRecoveryBackupAsync(RecoveryPath, passphrase);
+            if (version != LifecycleVersion || FlowState != AppFlowState.Recover) return;
             RecoverySummary = FormatInspection(inspection);
             ClearAuthenticationStatus();
         }
         catch (Exception exception)
         {
-            ShowMappedError(exception);
+            if (version == LifecycleVersion) ShowMappedError(exception);
         }
     }
 
@@ -160,7 +211,9 @@ public sealed partial class ShellViewModel : ObservableObject
     public async Task CompleteAuthenticatorSetupAsync(
         string masterPassword,
         string backupPassphrase,
-        string confirmationCode)
+        string confirmationCode,
+        string recoveryKey,
+        bool recoveryKeySaved)
     {
         if (PendingAuthenticatorSetup is null) return;
         try
@@ -172,11 +225,13 @@ public sealed partial class ShellViewModel : ObservableObject
                     backupPassphrase,
                     masterPassword,
                     PendingAuthenticatorSetup,
-                    confirmationCode);
+                    confirmationCode,
+                    recoveryKey,
+                    recoveryKeySaved);
             }
             else
             {
-                await flow.CompleteNewVaultAsync(masterPassword, PendingAuthenticatorSetup, confirmationCode);
+                await flow.CompleteNewVaultAsync(masterPassword, PendingAuthenticatorSetup, confirmationCode, recoveryKey, recoveryKeySaved);
             }
 
             FlowState = flow.FlowState;
@@ -212,22 +267,40 @@ public sealed partial class ShellViewModel : ObservableObject
         SecurityCheck.Clear();
         Backup.Clear();
         Settings.Clear();
-        await flow.LockAsync();
+        PendingAuthenticatorSetup = null;
+        RecoveryPath = RecoverySummary = string.Empty;
+        IsRecovering = false;
+        var operation = flow.LockAsync();
+        var version = LifecycleVersion;
+        await operation;
+        if (version != LifecycleVersion) return;
         Vault.Clear();
         await clipboard.ClearOwnedValueAsync();
+        if (version != LifecycleVersion) return;
         navigation.ResetForLock();
         FlowState = flow.FlowState;
         CurrentRoute = navigation.CurrentRoute;
         StatusMessage = string.Empty;
         IsStatusOpen = false;
-        PendingAuthenticatorSetup = null;
         OnPropertyChanged(nameof(IsSignedIn));
     }
 
     [RelayCommand]
     private async Task LogoutAsync()
     {
-        await flow.LogoutAsync();
+        FlowState = AppFlowState.Unlock;
+        Vault.Clear();
+        Trash.Clear();
+        SecurityCheck.Clear();
+        Backup.Clear();
+        Settings.Clear();
+        PendingAuthenticatorSetup = null;
+        RecoveryPath = RecoverySummary = string.Empty;
+        IsRecovering = false;
+        var operation = flow.LogoutAsync();
+        var version = LifecycleVersion;
+        await operation;
+        if (version != LifecycleVersion) return;
         await LockAsync();
     }
 
@@ -282,8 +355,10 @@ public sealed partial class ShellViewModel : ObservableObject
                     if ((await flow.GetListItemsAsync()).Count == 1
                         && (await flow.GetDeletedItemsAsync()).Count == 0)
                     {
+                        var settings = await flow.GetSettingsAsync();
+                        if (!IsCurrentUnlock(version)) return false;
                         backupReminderOffered = true;
-                        IsBackupReminderOpen = (await flow.GetSettingsAsync()).LastExternalBackupAt is null;
+                        IsBackupReminderOpen = settings.LastExternalBackupAt is null;
                     }
                 }
                 catch { /* Saving the item succeeded; a reminder must not turn it into a failure. */ }
@@ -299,44 +374,63 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public async Task<VaultGroup?> CreateGroupAsync(string name, string? accentColor = null)
     {
+        var version = LifecycleVersion;
         try
         {
             var group = await flow.AddGroupAsync(name, accentColor);
             await Vault.RefreshAsync();
-            return group;
+            return IsCurrentUnlock(version) ? group : null;
         }
         catch (Exception exception) { ShowMappedError(exception); return null; }
     }
 
     public async Task<bool> UpdateGroupAsync(Guid id, string name, string? accentColor)
     {
-        try { await flow.UpdateGroupAsync(id, name, accentColor); await Vault.RefreshAsync(); return true; }
+        var version = LifecycleVersion;
+        try { await flow.UpdateGroupAsync(id, name, accentColor); await Vault.RefreshAsync(); return IsCurrentUnlock(version); }
         catch (Exception exception) { ShowMappedError(exception); return false; }
     }
 
     public async Task DeleteGroupAsync(Guid id, string name)
     {
+        var version = LifecycleVersion;
         var confirmation = await dialogs.ConfirmGroupDeletionAsync(name);
-        if (confirmation is null) return;
+        if (confirmation is null || !IsCurrentUnlock(version)) return;
         try { await flow.DeleteGroupAsync(id, confirmation.Value.Confirmation, confirmation.Value.TotpCode); await Vault.RefreshAsync(); }
-        catch (UnauthorizedAccessException) { await dialogs.ShowErrorAsync("Group was not deleted", "Incorrect authenticator code. Please try again."); }
+        catch (UnauthorizedAccessException) { if (IsCurrentUnlock(version)) await dialogs.ShowErrorAsync("Group was not deleted", "Incorrect authenticator code. Please try again."); }
         catch (Exception exception) { ShowMappedError(exception); }
     }
 
     public async Task DeleteItemAsync(Guid itemId)
     {
+        var version = LifecycleVersion;
         var title = Vault.Items.FirstOrDefault(item => item.Id == itemId)?.Title;
-        if (title is null || !await dialogs.ConfirmAsync("Move to Trash", $"Move '{title}' to Trash?", "Move to Trash")) return;
+        if (title is null || !await dialogs.ConfirmAsync("Move to Trash", $"Move '{title}' to Trash?", "Move to Trash") || !IsCurrentUnlock(version)) return;
         try
         {
             await flow.DeleteItemAsync(itemId);
             await Vault.RefreshAsync();
+            if (!IsCurrentUnlock(version)) return;
             ClearAuthenticationStatus();
         }
         catch (Exception exception)
         {
             ShowMappedError(exception);
         }
+    }
+
+    public async Task MoveItemToGroupAsync(Guid itemId, Guid? groupId)
+    {
+        var version = LifecycleVersion;
+        try
+        {
+            var item = await flow.GetItemForEditingAsync(itemId, string.Empty);
+            if (!IsCurrentUnlock(version)) return;
+            item.GroupId = groupId;
+            await flow.UpdateItemAsync(item);
+            await Vault.RefreshAsync();
+        }
+        catch (Exception exception) { ShowMappedError(exception); }
     }
 
     public async Task CopyUsernameAsync(Guid itemId)
@@ -446,16 +540,15 @@ public sealed partial class ShellViewModel : ObservableObject
     private async Task CompleteUnlockAsync(VaultUnlockResult result)
     {
         var version = LifecycleVersion;
+        if (!IsCurrentUnlock(version)) return;
         StatusMessage = result.Message;
         IsStatusOpen = !string.IsNullOrWhiteSpace(result.Message);
-        InactivityTimeout = await flow.GetInactivityTimeoutAsync();
-        if (!IsCurrentUnlock(version)) return;
-        VaultOpenDuration = await flow.GetVaultOpenDurationAsync();
         await Vault.RefreshAsync();
     }
 
     private void ShowMappedError(Exception exception)
     {
+        if (exception is OperationCanceledException) return;
         StatusMessage = errorMapper.Map(exception);
         IsStatusOpen = true;
     }

@@ -17,25 +17,123 @@ public sealed class AppFlowCoordinator
         this.operations = operations;
         this.totpService = totpService;
         hasPartialStorage = vaultService.HasPartialStorage;
-        FlowState = vaultService.IsVaultUnlocked ? AppFlowState.Unlocked : ResolveInitialState(vaultService.IsInitialized, hasPartialStorage);
+        FlowState = vaultService.HasActiveVaultSession
+            ? vaultService.NeedsRecoveryKey ? AppFlowState.SaveRecoveryKey : AppFlowState.Unlocked
+            : ResolveInitialState(vaultService.IsInitialized, hasPartialStorage);
     }
 
     public AppFlowState FlowState { get; private set; }
     public bool HasPartialStorage => hasPartialStorage;
     public bool IsSignedIn => vaultService.IsSignInSessionActive;
+    public bool NeedsRecoveryKey => vaultService.NeedsRecoveryKey;
+    public bool IsVaultSessionActive => vaultService.HasActiveVaultSession;
+    public async Task<bool> ValidateAuthenticatorSetupAsync(AuthenticatorSetup setup, string code)
+    {
+        var version = LifecycleVersion;
+        var state = FlowState;
+        var valid = await operations.RunAsync(() =>
+        {
+            EnsureCurrentFlow(version, state);
+            return vaultService.ValidateAuthenticatorSetup(setup.SecretBase32, code);
+        }).ConfigureAwait(false);
+        EnsureCurrentFlow(version, state);
+        return valid;
+    }
+    public async Task SaveRecoveryKeyAsync(string password, string key, bool saved)
+    {
+        var version = LifecycleVersion;
+        var state = FlowState;
+        if (state is not (AppFlowState.SaveRecoveryKey or AppFlowState.Unlocked))
+            throw new InvalidOperationException("Recovery Key changes require a normal vault unlock.");
+        await operations.RunAsync(() =>
+        {
+            EnsureCurrentFlow(version, state);
+            if (!vaultService.HasActiveVaultSession) throw new OperationCanceledException();
+            vaultService.SaveRecoveryKey(password, key, saved);
+        }).ConfigureAwait(false);
+        EnsureCurrentFlow(version, state);
+        if (!vaultService.IsVaultUnlocked) throw new OperationCanceledException();
+        FlowState = AppFlowState.Unlocked;
+    }
+    public void BeginRecoveryKeyReset()
+    {
+        if (FlowState != AppFlowState.Unlock) throw new InvalidOperationException("Lock the vault before starting recovery.");
+        Interlocked.Increment(ref lifecycleVersion);
+        FlowState = AppFlowState.RecoveryKeyValidation;
+    }
+
+    public async Task ValidateRecoveryKeyAsync(string key)
+    {
+        RequireFlowState(AppFlowState.RecoveryKeyValidation);
+        var version = LifecycleVersion;
+        await operations.RunAsync(() =>
+        {
+            EnsureCurrentFlow(version, AppFlowState.RecoveryKeyValidation);
+            vaultService.ValidateRecoveryKey(key);
+        }).ConfigureAwait(false);
+        EnsureCurrentFlow(version, AppFlowState.RecoveryKeyValidation);
+        FlowState = AppFlowState.RecoveryMasterPassword;
+    }
+
+    public void PrepareRecoveryKeyReset(string masterPassword, string confirmation)
+    {
+        RequireFlowState(AppFlowState.RecoveryMasterPassword);
+        MasterPasswordService.ValidateNewMasterPassword(masterPassword);
+        if (!string.Equals(masterPassword, confirmation, StringComparison.Ordinal))
+            throw new ArgumentException("The Master Password values do not match.", nameof(confirmation));
+        FlowState = AppFlowState.RecoveryKeySave;
+    }
+
+    public void ConfirmRecoveryKeySaved(bool saved)
+    {
+        RequireFlowState(AppFlowState.RecoveryKeySave);
+        if (!saved) throw new InvalidOperationException("Save the replacement Recovery Key before continuing.");
+        FlowState = AppFlowState.RecoveryAuthenticator;
+    }
+
+    public void CancelRecoveryKeyReset()
+    {
+        Interlocked.Increment(ref lifecycleVersion);
+        FlowState = AppFlowState.Unlock;
+    }
+
+    public async Task ResetWithRecoveryKeyAsync(RecoveryKeyResetRequest request)
+    {
+        RequireFlowState(AppFlowState.RecoveryAuthenticator);
+        var version = LifecycleVersion;
+        await operations.RunAsync(() =>
+        {
+            EnsureCurrentFlow(version, AppFlowState.RecoveryAuthenticator);
+            vaultService.ResetWithRecoveryKey(request);
+        }).ConfigureAwait(false);
+        EnsureCurrentFlow(version, AppFlowState.RecoveryAuthenticator);
+        Interlocked.Increment(ref lifecycleVersion);
+        FlowState = AppFlowState.Unlock;
+    }
     private long lifecycleVersion;
     public long LifecycleVersion => Volatile.Read(ref lifecycleVersion);
-    public bool IsCurrentUnlock(long version) => version == LifecycleVersion && IsSignedIn && FlowState == AppFlowState.Unlocked;
+    public bool IsCurrentUnlock(long version) => version == LifecycleVersion && vaultService.IsVaultUnlocked && FlowState == AppFlowState.Unlocked;
 
     public static AppFlowState ResolveInitialState(bool isInitialized, bool hasPartialStorage) =>
         hasPartialStorage ? AppFlowState.Recover : isInitialized ? AppFlowState.Unlock : AppFlowState.FirstLaunch;
 
-    public Task<bool> ValidateMasterPasswordAsync(string masterPassword, CancellationToken cancellationToken = default) =>
-        operations.RunAsync(() => vaultService.ValidateMasterPassword(masterPassword), cancellationToken);
+    public async Task<bool> ValidateMasterPasswordAsync(string masterPassword, CancellationToken cancellationToken = default)
+    {
+        var version = LifecycleVersion;
+        var state = FlowState;
+        var valid = await operations.RunAsync(() =>
+        {
+            EnsureCurrentFlow(version, state);
+            return vaultService.ValidateMasterPassword(masterPassword);
+        }, cancellationToken).ConfigureAwait(false);
+        EnsureCurrentFlow(version, state);
+        return valid;
+    }
 
     public async Task<VaultUnlockResult> UnlockAsync(string masterPassword, string totpCode, CancellationToken cancellationToken = default)
     {
-        var version = Volatile.Read(ref lifecycleVersion);
+        RequireFlowState(AppFlowState.Unlock);
+        var version = Interlocked.Increment(ref lifecycleVersion);
         var result = await operations.RunAsync(() =>
         {
             if (version != Volatile.Read(ref lifecycleVersion))
@@ -56,19 +154,32 @@ public sealed class AppFlowCoordinator
                 if (!verified) vaultService.LockVault();
             }
         }, cancellationToken).ConfigureAwait(false);
-        if (result.Success && version == Volatile.Read(ref lifecycleVersion)) FlowState = AppFlowState.Unlocked;
+        if (result.Success && version == Volatile.Read(ref lifecycleVersion) && vaultService.HasActiveVaultSession) FlowState = NeedsRecoveryKey ? AppFlowState.SaveRecoveryKey : AppFlowState.Unlocked;
         else if (result.Success) return new VaultUnlockResult(VaultUnlockStatus.Failed, "Unlock cancelled.");
         return result;
     }
 
-    public void BeginNewVault() => FlowState = AppFlowState.CreateMasterPassword;
+    public void BeginNewVault()
+    {
+        Interlocked.Increment(ref lifecycleVersion);
+        FlowState = AppFlowState.CreateMasterPassword;
+    }
 
-    public void BeginRecovery() => FlowState = AppFlowState.Recover;
+    public void BeginRecovery()
+    {
+        Interlocked.Increment(ref lifecycleVersion);
+        FlowState = AppFlowState.Recover;
+    }
 
-    public void ReturnToFirstLaunch() => FlowState = AppFlowState.FirstLaunch;
+    public void ReturnToFirstLaunch()
+    {
+        Interlocked.Increment(ref lifecycleVersion);
+        FlowState = AppFlowState.FirstLaunch;
+    }
 
     public AuthenticatorSetup PrepareAuthenticator(string masterPassword, string confirmation)
     {
+        RequireFlowState(AppFlowState.CreateMasterPassword);
         MasterPasswordService.ValidateNewMasterPassword(masterPassword);
         if (!string.Equals(masterPassword, confirmation, StringComparison.Ordinal))
             throw new ArgumentException("The Master Password values do not match.", nameof(confirmation));
@@ -100,11 +211,21 @@ public sealed class AppFlowCoordinator
         string masterPassword,
         AuthenticatorSetup setup,
         string confirmationCode,
+        string recoveryKey,
+        bool recoveryKeySaved,
         CancellationToken cancellationToken = default)
     {
+        RequireFlowState(AppFlowState.SetupAuthenticator);
+        var version = LifecycleVersion;
         await operations.RunAsync(
-            () => vaultService.InitializeNewVault(masterPassword, setup.SecretBase32, confirmationCode),
+            () =>
+            {
+                EnsureCurrentFlow(version, AppFlowState.SetupAuthenticator);
+                vaultService.InitializeNewVault(masterPassword, setup.SecretBase32, confirmationCode, recoveryKey, recoveryKeySaved);
+            },
             cancellationToken).ConfigureAwait(false);
+        EnsureCurrentFlow(version, AppFlowState.SetupAuthenticator);
+        if (!vaultService.IsVaultUnlocked) throw new OperationCanceledException();
         FlowState = AppFlowState.Unlocked;
     }
 
@@ -114,37 +235,49 @@ public sealed class AppFlowCoordinator
         string masterPassword,
         AuthenticatorSetup setup,
         string confirmationCode,
+        string recoveryKey,
+        bool recoveryKeySaved,
         CancellationToken cancellationToken = default)
     {
-        await operations.RunAsync(() => vaultService.RecoverFromBackup(new VaultRecoveryRequest
+        RequireFlowState(AppFlowState.SetupAuthenticator);
+        var version = LifecycleVersion;
+        await operations.RunAsync(() =>
         {
-            BackupJson = ReadBoundedBackupFile(backupPath),
-            BackupPassphrase = backupPassphrase,
-            NewMasterPassword = masterPassword,
-            NewTotpSecretBase32 = setup.SecretBase32,
-            TotpConfirmationCode = confirmationCode
-        }), cancellationToken).ConfigureAwait(false);
+            EnsureCurrentFlow(version, AppFlowState.SetupAuthenticator);
+            vaultService.RecoverFromBackup(new VaultRecoveryRequest
+            {
+                BackupJson = ReadBoundedBackupFile(backupPath),
+                BackupPassphrase = backupPassphrase,
+                NewMasterPassword = masterPassword,
+                NewTotpSecretBase32 = setup.SecretBase32,
+                TotpConfirmationCode = confirmationCode,
+                RecoveryKey = recoveryKey,
+                RecoveryKeySaved = recoveryKeySaved
+            });
+        }, cancellationToken).ConfigureAwait(false);
+        EnsureCurrentFlow(version, AppFlowState.SetupAuthenticator);
+        if (!vaultService.IsVaultUnlocked) throw new OperationCanceledException();
         FlowState = AppFlowState.Unlocked;
     }
 
     public async Task LockAsync(CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref lifecycleVersion);
+        var version = Interlocked.Increment(ref lifecycleVersion);
         FlowState = AppFlowState.Unlock;
         await operations.RunAsync(() =>
         {
             if (vaultService.IsSignInSessionActive) vaultService.LockVault();
             else vaultService.ClearSession();
         }, cancellationToken).ConfigureAwait(false);
-        FlowState = AppFlowState.Unlock;
+        if (version == LifecycleVersion) FlowState = AppFlowState.Unlock;
     }
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref lifecycleVersion);
+        var version = Interlocked.Increment(ref lifecycleVersion);
         FlowState = AppFlowState.Unlock;
         await operations.RunAsync(vaultService.ClearSession, cancellationToken).ConfigureAwait(false);
-        FlowState = AppFlowState.Unlock;
+        if (version == LifecycleVersion) FlowState = AppFlowState.Unlock;
     }
 
     public Task<IReadOnlyList<VaultItemListItem>> GetListItemsAsync(CancellationToken cancellationToken = default) =>
@@ -161,14 +294,6 @@ public sealed class AppFlowCoordinator
 
     public Task DeleteGroupAsync(Guid id, string confirmation, string totpCode, CancellationToken cancellationToken = default) =>
         RunVaultAsync(() => vaultService.DeleteGroup(id, confirmation, totpCode), cancellationToken);
-
-    public Task<TimeSpan> GetInactivityTimeoutAsync(CancellationToken cancellationToken = default) =>
-        RunVaultAsync(
-            () => TimeSpan.FromMinutes(vaultService.SecuritySettings.InactivityLockTimeoutMinutes),
-            cancellationToken);
-
-    public Task<TimeSpan> GetVaultOpenDurationAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(TimeSpan.FromMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes));
 
     public Task<VaultItem> GetItemForEditingAsync(
         Guid id,
@@ -231,7 +356,7 @@ public sealed class AppFlowCoordinator
         {
             var security = vaultService.SecuritySettings;
             return new SettingsSnapshot(
-                security.InactivityLockTimeoutMinutes,
+                security.VaultOpenDurationMinutes,
                 vaultService.NeedsKdfUpgrade,
                 vaultService.LastExternalBackupAt,
                 vaultService.LastVerifiedBackupAt);
@@ -239,7 +364,7 @@ public sealed class AppFlowCoordinator
 
     public Task<OperationResult> UpdateSettingsAsync(
         string masterPassword,
-        int inactivityTimeoutMinutes,
+        int vaultDurationMinutes,
         CancellationToken cancellationToken = default) =>
         RunVaultAsync(() =>
         {
@@ -247,9 +372,9 @@ public sealed class AppFlowCoordinator
                 masterPassword,
                 VaultLoginMode.Hybrid,
                 new VaultSecuritySettings(
-                    inactivityTimeoutMinutes,
+                    VaultSecuritySettings.DefaultInactivityLockTimeoutMinutes,
                     VaultSecuritySettings.DefaultSensitiveActionTimeoutMinutes,
-                    VaultSecuritySettings.MaximumSessionDurationMinutes),
+                    vaultDurationMinutes),
                 out var message);
             return new OperationResult(success, message);
         }, cancellationToken);
@@ -348,13 +473,33 @@ public sealed class AppFlowCoordinator
         string masterPassword,
         CancellationToken cancellationToken = default)
     {
+        var version = LifecycleVersion;
         var result = await operations.RunAsync(() =>
         {
+            if (!IsCurrentUnlock(version)) throw new OperationCanceledException();
             var success = vaultService.TryRestoreSnapshot(snapshotId, masterPassword, out var message);
             return new OperationResult(success, message);
         }, cancellationToken).ConfigureAwait(false);
-        if (result.Success) FlowState = AppFlowState.Unlock;
+        if (version != LifecycleVersion) throw new OperationCanceledException();
+        if (result.Success)
+        {
+            Interlocked.Increment(ref lifecycleVersion);
+            FlowState = AppFlowState.Unlock;
+        }
+        else if (!IsCurrentUnlock(version)) throw new OperationCanceledException();
         return result;
+    }
+
+    private void RequireFlowState(AppFlowState state)
+    {
+        if (FlowState != state) throw new InvalidOperationException("The wizard step is not available in the current state.");
+    }
+
+    private void EnsureCurrentFlow(long version, AppFlowState state)
+    {
+        if (version != LifecycleVersion || FlowState != state
+            || state is (AppFlowState.Unlocked or AppFlowState.SaveRecoveryKey) && !vaultService.HasActiveVaultSession)
+            throw new OperationCanceledException();
     }
 
     private static string ReadBoundedBackupFile(string path)
@@ -369,11 +514,19 @@ public sealed class AppFlowCoordinator
     private async Task<T> RunVaultAsync<T>(Func<T> operation, CancellationToken cancellationToken)
     {
         var version = LifecycleVersion;
-        var result = await operations.RunAsync(() =>
+        T result;
+        try
         {
-            if (!IsCurrentUnlock(version)) throw new OperationCanceledException("The vault was locked or the sign-in session expired.");
-            return operation();
-        }, cancellationToken).ConfigureAwait(false);
+            result = await operations.RunAsync(() =>
+            {
+                if (!IsCurrentUnlock(version)) throw new OperationCanceledException("The vault was locked or the sign-in session expired.");
+                return operation();
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!IsCurrentUnlock(version))
+        {
+            throw new OperationCanceledException("The vault was locked or the sign-in session expired.");
+        }
         if (!IsCurrentUnlock(version)) throw new OperationCanceledException("The vault was locked or the sign-in session expired.");
         return result;
     }

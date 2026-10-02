@@ -5,7 +5,7 @@ namespace PasswordTool.Presentation;
 
 public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErrorMapper errorMapper) : ObservableObject
 {
-    [ObservableProperty] public partial double InactivityTimeoutMinutes { get; set; } = VaultSecuritySettings.DefaultInactivityLockTimeoutMinutes;
+    [ObservableProperty] public partial double VaultDurationMinutes { get; set; } = VaultSecuritySettings.DefaultVaultOpenDurationMinutes;
     [ObservableProperty] public partial bool NeedsKdfUpgrade { get; set; }
     [ObservableProperty] public partial string BackupHealthText { get; set; } = string.Empty;
     [ObservableProperty] public partial string StatusMessage { get; set; } = string.Empty;
@@ -20,18 +20,18 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
         {
             var snapshot = await flow.GetSettingsAsync();
             if (!flow.IsCurrentUnlock(version)) return;
-            InactivityTimeoutMinutes = snapshot.InactivityTimeoutMinutes;
+            VaultDurationMinutes = snapshot.VaultDurationMinutes;
             NeedsKdfUpgrade = snapshot.NeedsKdfUpgrade;
             BackupHealthText = $"Last external backup: {FormatDate(snapshot.LastExternalBackupAt)} · " +
                 $"Last verified: {FormatDate(snapshot.LastVerifiedBackupAt)}";
         }
         catch (Exception exception)
         {
-            ShowError(errorMapper.Map(exception));
+            if (flow.IsCurrentUnlock(version) && exception is not OperationCanceledException) ShowError(errorMapper.Map(exception));
         }
         finally
         {
-            IsBusy = false;
+            if (flow.IsCurrentUnlock(version)) IsBusy = false;
         }
     }
 
@@ -39,7 +39,7 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
     {
         return await CompleteAsync(flow.UpdateSettingsAsync(
             masterPassword,
-            (int)InactivityTimeoutMinutes), "Security settings saved.");
+            (int)VaultDurationMinutes), "Security settings saved.");
     }
 
     public async Task<bool> ChangeMasterPasswordAsync(string currentPassword, string newPassword, string confirmation)
@@ -69,10 +69,12 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
 
     private async Task<bool> CompleteAsync(Task<OperationResult> operation, string successMessage)
     {
+        var version = flow.LifecycleVersion;
         OperationResult result;
         try { result = await operation; }
         catch (OperationCanceledException) { return false; }
-        catch (Exception exception) { ShowError(errorMapper.Map(exception)); return false; }
+        catch (Exception exception) { if (flow.IsCurrentUnlock(version)) ShowError(errorMapper.Map(exception)); return false; }
+        if (!flow.IsCurrentUnlock(version)) return false;
         StatusMessage = result.Success ? successMessage : result.Message;
         IsStatusOpen = true;
         return result.Success;
@@ -90,5 +92,6 @@ public sealed partial class SettingsViewModel(AppFlowCoordinator flow, IUserErro
     {
         BackupHealthText = StatusMessage = string.Empty;
         IsStatusOpen = false;
+        IsBusy = false;
     }
 }

@@ -36,7 +36,7 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
     [ObservableProperty] public partial bool IsVerticalTabs { get; set; }
     public string ItemCountText => $"{Items.Count:N0} item{(Items.Count == 1 ? string.Empty : "s")}";
     public bool IsEmpty => Items.Count == 0 && !IsBusy;
-    public bool CanClearFilters => HasFilter || !SelectedGroup.IsAll || SelectedSortOrder.Value != VaultSortOrder.TitleAscending;
+    public bool CanClearFilters => SearchText.Length > 0 || SelectedViewFilter.Value != VaultViewFilter.All || FilterByGroup || !SelectedGroup.IsAll || SelectedSortOrder.Value != VaultSortOrder.TitleAscending;
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -53,7 +53,10 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
             RefreshGroupTabs();
             ApplyFilter();
         }
-        finally { IsBusy = false; OnPropertyChanged(nameof(IsEmpty)); }
+        finally
+        {
+            if (version == flow.LifecycleVersion) { IsBusy = false; OnPropertyChanged(nameof(IsEmpty)); }
+        }
     }
 
     public void Clear()
@@ -95,12 +98,13 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
         else SelectedGroup = group;
     }
 
-    public void ResetToDefaultView()
+    public void ResetToDefaultView(bool resetGroupFilter = true)
     {
         updatingView = true;
         try
         {
             SelectedGroup = AllGroup;
+            if (resetGroupFilter) FilterByGroup = false;
             SearchText = string.Empty;
             SelectedViewFilter = ViewFilters[0];
             SelectedSortOrder = SortOrders[0];
@@ -114,20 +118,20 @@ public sealed partial class VaultWorkspaceViewModel : ObservableObject
     partial void OnSearchTextChanged(string oldValue, string newValue)
     {
         if (updatingView) return;
-        if (!string.IsNullOrWhiteSpace(oldValue) && string.IsNullOrWhiteSpace(newValue)) ResetToDefaultView();
+        if (!string.IsNullOrWhiteSpace(oldValue) && string.IsNullOrWhiteSpace(newValue)) ResetToDefaultView(resetGroupFilter: false);
         else ApplyFilter();
     }
     partial void OnSelectedViewFilterChanged(VaultFilterOption oldValue, VaultFilterOption newValue)
     {
         if (updatingView) return;
-        if (oldValue is not null && oldValue.Value != VaultViewFilter.All && newValue.Value == VaultViewFilter.All) ResetToDefaultView();
+        if (oldValue is not null && oldValue.Value != VaultViewFilter.All && newValue.Value == VaultViewFilter.All) ResetToDefaultView(resetGroupFilter: false);
         else ApplyFilter();
     }
     partial void OnSelectedSortOrderChanged(VaultSortOption value) => ApplyFilter();
     partial void OnSelectedGroupChanged(VaultItemGroup value) => ApplyFilter();
     partial void OnFilterByGroupChanged(bool value)
     {
-        if (!updatingView) ResetToDefaultView();
+        if (!updatingView) ResetToDefaultView(resetGroupFilter: false);
     }
 
     private void ApplyFilter()

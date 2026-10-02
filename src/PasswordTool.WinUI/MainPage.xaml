@@ -8,7 +8,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:PasswordTool.Core.Models"
     xmlns:presentation="using:PasswordTool.Presentation"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Background="{ThemeResource WorkspaceBackgroundBrush}"
     KeyboardAcceleratorPlacementMode="Hidden"
     mc:Ignorable="d">
 
@@ -19,6 +19,9 @@
         </Style>
         <Style x:Key="VaultTabButtonStyle" TargetType="Button">
             <Setter Property="UseSystemFocusVisuals" Value="True" />
+            <Setter Property="Background" Value="{ThemeResource VaultGroupTabBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{ThemeResource VaultGroupTabTextBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource VaultGroupTabBorderBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -26,6 +29,17 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+        <Style x:Key="VaultSelectedTabButtonStyle" BasedOn="{StaticResource VaultTabButtonStyle}" TargetType="Button">
+            <Setter Property="Background" Value="{ThemeResource VaultGroupBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource VaultGroupSelectedBorderBrush}" />
+        </Style>
+        <Style x:Key="VaultHoverTabButtonStyle" BasedOn="{StaticResource VaultTabButtonStyle}" TargetType="Button">
+            <Setter Property="Background" Value="{ThemeResource VaultGroupHoverBrush}" />
+            <Setter Property="Foreground" Value="{ThemeResource VaultGroupHoverTextBrush}" />
+        </Style>
+        <Style x:Key="VaultGroupTableStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource VaultGroupBackgroundBrush}" />
         </Style>
         <Style x:Key="VaultRowIconButtonStyle" BasedOn="{StaticResource VaultTabButtonStyle}" TargetType="Button">
             <Setter Property="Width" Value="32" />
@@ -65,6 +79,7 @@
         <Grid x:Name="AuthenticationPanel">
             <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <Border
+                    x:Name="AuthenticationCard"
                     Width="600"
                     Margin="24"
                     HorizontalAlignment="Center"
@@ -114,7 +129,7 @@
                         <StackPanel x:Name="CreateMasterPasswordPanel" Spacing="16" Visibility="Collapsed">
                             <TextBlock Style="{StaticResource PasswordToolPageTitleStyle}" Text="Create Master Password" />
                             <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Use at least 12 characters." TextWrapping="Wrap" />
-                            <TextBlock Text="Remember your Master Password. PasswordTool cannot retrieve or reset it. If you forget it, you’ll need an encrypted backup and its backup password to restore your data." TextWrapping="Wrap" />
+                            <TextBlock Text="Save the Recovery Key shown after Authenticator verification. It can reset your Master Password and Authenticator." TextWrapping="Wrap" />
                             <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Add your first item, then create an encrypted backup." TextWrapping="Wrap" />
                             <PasswordBox x:Name="NewMasterPasswordInput" AutomationProperties.Name="New Master Password" Header="Master Password" />
                             <PasswordBox x:Name="ConfirmMasterPasswordInput" AutomationProperties.Name="Confirm Master Password" Header="Confirm Master Password" />
@@ -139,16 +154,17 @@
 
                         <StackPanel x:Name="UnlockPanel" Spacing="16" Visibility="Collapsed">
                             <FontIcon HorizontalAlignment="Left" FontSize="36" Glyph="&#xE72E;" />
-                            <TextBlock x:Name="UnlockHeading" Text="Sign in" Style="{StaticResource PasswordToolPageTitleStyle}" />
-                            <TextBlock x:Name="UnlockDescription" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Enter your Master Password and Google Authenticator code to sign in." TextWrapping="Wrap" />
-                            <PasswordBox x:Name="MasterPasswordInput" AutomationProperties.AutomationId="TxtMasterPassword" Header="Master Password" AutomationProperties.Name="Master Password" KeyDown="MasterPasswordInput_KeyDown" />
-                            <Button x:Name="UnlockButton" Style="{StaticResource AccentButtonStyle}" AutomationProperties.AutomationId="BtnUnlock" HorizontalAlignment="Stretch" AutomationProperties.Name="Unlock vault" Click="UnlockButton_Click" Content="Unlock" />
-                            <Expander Header="Forgot your Master Password?" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="If you forget your Master Password, restore an encrypted backup using its backup password, then create a new Master Password." TextWrapping="Wrap" />
-                                    <TextBlock Text="PasswordTool cannot recover a locked vault without a usable backup and its password. Recovery requires an installation with no local vault files. Use a fresh Windows user profile or another device, then choose Recover from encrypted backup on the welcome screen. Keep your current vault files until recovery is complete." TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Expander>
+                            <TextBlock x:Name="UnlockHeading" Text="Sign in" FontSize="32" Style="{StaticResource PasswordToolPageTitleStyle}" />
+                            <TextBlock x:Name="UnlockDescription" FontSize="16" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Enter your Master Password and Google Authenticator code to sign in." TextWrapping="Wrap" />
+                            <PasswordBox x:Name="MasterPasswordInput" FontSize="18" MinHeight="44" AutomationProperties.AutomationId="TxtMasterPassword" Header="Master Password" AutomationProperties.Name="Master Password" KeyDown="MasterPasswordInput_KeyDown">
+                                <PasswordBox.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" FontSize="16" />
+                                    </DataTemplate>
+                                </PasswordBox.HeaderTemplate>
+                            </PasswordBox>
+                            <Button x:Name="UnlockButton" FontSize="16" MinHeight="44" Style="{StaticResource AccentButtonStyle}" AutomationProperties.AutomationId="BtnUnlock" HorizontalAlignment="Stretch" AutomationProperties.Name="Unlock vault" Click="UnlockButton_Click" Content="Unlock" />
+                            <Button FontSize="16" MinHeight="40" Content="Forgot Master Password?" Click="ForgotMasterPasswordButton_Click" />
                         </StackPanel>
 
                         <InfoBar
@@ -165,6 +181,7 @@
 
         <NavigationView
             x:Name="ShellNavigation"
+            Background="{ThemeResource WorkspaceBackgroundBrush}"
             AutomationProperties.AutomationId="NavShell"
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="False"
@@ -177,10 +194,11 @@
                 <NavigationViewItem AutomationProperties.AutomationId="NavSecurityCheck" Content="Security Check" Icon="ContactInfo" Tag="SecurityCheck" />
                 <NavigationViewItem AutomationProperties.AutomationId="NavBackup" Content="Backup" Icon="Save" Tag="Backup" />
                 <NavigationViewItem AutomationProperties.AutomationId="NavHashTool" Content="Hash Tool" Icon="Calculator" Tag="HashTool" />
+                <NavigationViewItem AutomationProperties.AutomationId="NavTrash" Content="Trash" Icon="Delete" Tag="Trash" />
                 <NavigationViewItem AutomationProperties.AutomationId="NavSettings" Content="Settings" Icon="Setting" Tag="Settings" />
             </NavigationView.MenuItems>
-            <Grid x:Name="WorkspaceContent" Padding="{StaticResource PasswordToolPagePadding}">
-                <Grid x:Name="VaultPage">
+            <Grid x:Name="WorkspaceContent">
+                <Grid x:Name="VaultPage" Padding="{StaticResource PasswordToolPagePadding}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -213,6 +231,7 @@
                             MinHeight="44"
                             Padding="16,8"
                             AutomationProperties.AutomationId="BtnLockVault"
+                            Style="{StaticResource AccentButtonStyle}"
                             AutomationProperties.Name="Lock vault"
                             Click="LockVaultButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="10">
@@ -227,12 +246,15 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <TextBox x:Name="VaultSearchInput" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="TxtVaultSearch" Header="Search" PlaceholderText="Title, username, or URL" Text="{x:Bind ViewModel.Vault.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                        <VariableSizedWrapGrid Grid.Row="1" Orientation="Horizontal" MaximumRowsOrColumns="4">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
+                            <TextBox x:Name="VaultSearchInput" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="TxtVaultSearch" Header="Search" PlaceholderText="Title, username, or URL" Text="{x:Bind ViewModel.Vault.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" VerticalAlignment="Bottom" Content="Clear" AutomationProperties.AutomationId="BtnClearVaultFilters" Click="ClearVaultFilters_Click" IsEnabled="{x:Bind ViewModel.Vault.CanClearFilters, Mode=OneWay}" />
+                        </Grid>
+                        <VariableSizedWrapGrid Grid.Row="1" Orientation="Horizontal" MaximumRowsOrColumns="3">
                             <ComboBox Width="150" Margin="0,0,12,8" AutomationProperties.Name="Item type filter" Header="View" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Vault.ViewFilters}" SelectedItem="{x:Bind ViewModel.Vault.SelectedViewFilter, Mode=TwoWay}" />
                             <ComboBox Width="160" Margin="0,0,12,8" AutomationProperties.Name="Sort order" Header="Sort" DisplayMemberPath="Label" ItemsSource="{x:Bind ViewModel.Vault.SortOrders}" SelectedItem="{x:Bind ViewModel.Vault.SelectedSortOrder, Mode=TwoWay}" />
                             <CheckBox Margin="0,24,12,8" VerticalAlignment="Center" Content="Filter by group" AutomationProperties.AutomationId="ChkFilterByGroup" IsChecked="{x:Bind ViewModel.Vault.FilterByGroup, Mode=TwoWay}" />
-                            <Button Margin="0,24,0,8" VerticalAlignment="Center" Content="Clear filters" AutomationProperties.AutomationId="BtnClearVaultFilters" Click="ClearVaultFilters_Click" IsEnabled="{x:Bind ViewModel.Vault.CanClearFilters, Mode=OneWay}" />
                         </VariableSizedWrapGrid>
                     </Grid>
                     <Grid x:Name="GroupContainer" Grid.Row="2" RowSpacing="8">
@@ -244,15 +266,15 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Border x:Name="GroupTableFrame" Grid.Row="1" Grid.ColumnSpan="2" Padding="10" CornerRadius="8" Background="{ThemeResource VaultGroupBackgroundBrush}">
-                            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
+                        <Border x:Name="GroupTableFrame" Style="{StaticResource VaultGroupTableStyle}" Grid.Row="1" Grid.ColumnSpan="2" Padding="10" CornerRadius="8">
+                            <Border Background="{ThemeResource VaultTableBackgroundBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
                                 <ScrollViewer HorizontalContentAlignment="Stretch" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="Credential table horizontal scroll">
-                                    <Grid x:Name="CredentialTable" MinWidth="660" SizeChanged="CredentialTable_SizeChanged">
+                                    <Grid x:Name="CredentialTable" MinWidth="1208" SizeChanged="CredentialTable_SizeChanged">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="*" />
                                         </Grid.RowDefinitions>
-                                        <Grid x:Name="CredentialHeader" Loaded="CredentialGrid_Loaded" Padding="12,8" ColumnSpacing="20" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                        <Grid x:Name="CredentialHeader" Loaded="CredentialGrid_Loaded" Padding="12,8" ColumnSpacing="20" Background="{ThemeResource VaultTableHeaderBrush}">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="108" />
                                                 <ColumnDefinition Width="1.7*" />
@@ -295,8 +317,7 @@
                                     <Border Grid.Column="6" Width="1" Height="20" Margin="-10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Background="{ThemeResource TextFillColorSecondaryBrush}" Opacity="0.22" IsHitTestVisible="False" />
                                     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                                         <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Edit', Id)}" AutomationProperties.Name="Edit item" Click="EditRowMenuItem_Click" Padding="0" Tag="{x:Bind Id}" ToolTipService.ToolTip="Edit"><FontIcon Glyph="&#xE70F;" /></Button>
-                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('History', Id)}" AutomationProperties.Name="Password history" Click="PasswordHistoryRowMenuItem_Click" Padding="0" Tag="{x:Bind Id}" ToolTipService.ToolTip="Password history" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasPassword), Mode=OneTime}"><FontIcon Glyph="&#xE917;" /></Button>
-                                        <Button AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('Trash', Id)}" AutomationProperties.Name="Move to Trash" Click="TrashRowMenuItem_Click" Padding="0" Tag="{x:Bind Id}" ToolTipService.ToolTip="Move to Trash"><Path Width="14" Height="14" Stroke="{ThemeResource TextFillColorPrimaryBrush}" StrokeThickness="1" Data="M1,3 L13,3 M5,3 L5,1 L9,1 L9,3 M3,5 L3,13 L11,13 L11,5" /></Button>
+                                        <Button AutomationProperties.Name="More item actions" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('More', Id)}" Padding="0" Tag="{x:Bind Id}" Click="MoreItemActions_Click"><SymbolIcon Symbol="More" /></Button>
                                     </StackPanel>
                                     <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
                                     <Grid Grid.Column="2" ColumnSpacing="4" VerticalAlignment="Center">
@@ -304,7 +325,7 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTipService.ToolTip="{x:Bind Username}" />
+                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind Username}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                                         <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('CopyUsername', Id)}" AutomationProperties.Name="Copy username" Padding="0" Tag="{x:Bind Id}" Click="CopyUsernameRowButton_Click"><FontIcon Glyph="&#xE8C8;" /></Button>
                                     </Grid>
                                     <Grid Grid.Column="3" ColumnSpacing="4" VerticalAlignment="Center">
@@ -326,11 +347,12 @@
                                         <TextBlock VerticalAlignment="Center" Text="{x:Bind RecoveryCodesDisplay}" />
                                         <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewRecoveryCodes', Id)}" AutomationProperties.Name="View recovery codes" Padding="0" Tag="{x:Bind Id}" Click="RevealRecoveryCodesRowButton_Click" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasRecoveryCodes), Mode=OneTime}"><FontIcon Glyph="&#xE890;" /></Button>
                                     </Grid>
-                                    <Grid Grid.Column="5" VerticalAlignment="Center">
-                                        <TextBlock Margin="0,0,36,0" VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                        <Button HorizontalAlignment="{x:Bind local:MainPage.NotesRevealAlignment(HideNotes), Mode=OneTime}" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="0" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><FontIcon Glyph="&#xE890;" /></Button>
+                                    <Grid Grid.Column="5" VerticalAlignment="Center" ColumnSpacing="4">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="32" /></Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Text="{x:Bind Notes}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                        <Button Grid.Column="1" AutomationProperties.AutomationId="{x:Bind local:MainPage.ItemAutomationId('ViewNotes', Id)}" AutomationProperties.Name="View notes" Click="RevealNotesRowButton_Click" Padding="0" Tag="{x:Bind Id}" ToolTipService.ToolTip="View notes" Visibility="{x:Bind local:MainPage.BoolToVisibility(HasNotes), Mode=OneTime}"><FontIcon Glyph="&#xE890;" /></Button>
                                     </Grid>
-                                    <Border Grid.ColumnSpan="7" Height="1" Margin="-12,0,-12,-10" VerticalAlignment="Bottom" Background="{ThemeResource DividerStrokeColorDefaultBrush}" IsHitTestVisible="False" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsLastInGroup), Mode=OneTime}" />
+                                    <Border Grid.ColumnSpan="7" Height="1" Margin="-12,0,-12,-10" VerticalAlignment="Bottom" Background="{ThemeResource PasswordToolDividerBrush}" IsHitTestVisible="False" Visibility="{x:Bind local:MainPage.InvertBoolToVisibility(IsLastInGroup), Mode=OneTime}" />
                                     <TextBlock Grid.Column="6" VerticalAlignment="Center" Text="{x:Bind UpdatedDisplay}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                                     </DataTemplate>
@@ -398,12 +420,11 @@
                         <StackPanel x:Name="VaultActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
                             <Button AutomationProperties.AutomationId="BtnAddGroup" AutomationProperties.Name="Create group" Click="AddGroupButton_Click" Content="New Group" />
                             <Button Style="{StaticResource AccentButtonStyle}" AutomationProperties.AutomationId="BtnAddItem" AutomationProperties.Name="Add vault item" Click="AddItemButton_Click" Content="Add item" />
-                            <Button AutomationProperties.AutomationId="BtnOpenTrash" AutomationProperties.Name="Open Trash" Click="OpenTrashButton_Click" Content="Trash" />
                         </StackPanel>
                     </Grid>
                 </Grid>
 
-                <Grid x:Name="TrashPage" MaxWidth="960" Visibility="Collapsed" RowSpacing="16">
+                <Grid x:Name="TrashPage" Padding="24" Visibility="Collapsed" RowSpacing="16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -448,7 +469,7 @@
                     <InfoBar Grid.Row="3" IsClosable="True" IsOpen="{x:Bind ViewModel.Trash.IsErrorOpen, Mode=TwoWay}" Message="{x:Bind ViewModel.Trash.ErrorMessage, Mode=OneWay}" Severity="Error" Title="Trash operation could not continue" />
                 </Grid>
 
-                <ScrollViewer x:Name="EditorPage" MaxWidth="960" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                <ScrollViewer x:Name="EditorPage" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
                     <StackPanel Style="{StaticResource PasswordToolFormStyle}">
                         <StackPanel Spacing="4">
                             <TextBlock x:Name="EditorTitle" Style="{StaticResource PasswordToolPageTitleStyle}" Text="Add item" />
@@ -490,24 +511,24 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid x:Name="HashToolPage" MaxWidth="960" Visibility="Collapsed" RowSpacing="20">
+                <Grid x:Name="HashToolPage" Visibility="Collapsed" RowSpacing="20">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <StackPanel Spacing="4">
+                    <StackPanel Margin="24,24,24,0" Spacing="4">
                         <TextBlock Style="{StaticResource PasswordToolPageTitleStyle}" Text="Password Hash Tool" />
                         <TextBlock Style="{StaticResource PasswordToolDescriptionStyle}" Text="Generate a password hash, check a password, or inspect an existing hash. All processing stays on this device." />
                     </StackPanel>
-                    <SelectorBar x:Name="HashModeSelector" Grid.Row="1" AutomationProperties.Name="Hash operation" SelectionChanged="HashModeSelector_SelectionChanged">
+                    <SelectorBar x:Name="HashModeSelector" Grid.Row="1" Margin="24,0" AutomationProperties.Name="Hash operation" SelectionChanged="HashModeSelector_SelectionChanged">
                         <SelectorBarItem Text="Generate" IsSelected="True" AutomationProperties.AutomationId="HashModeGenerate" />
                         <SelectorBarItem Text="Verify" AutomationProperties.AutomationId="HashModeVerify" />
                         <SelectorBarItem Text="Inspect" AutomationProperties.AutomationId="HashModeInspect" />
                     </SelectorBar>
                     <ScrollViewer Grid.Row="2" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" VerticalScrollBarVisibility="Auto">
-                        <Border Style="{StaticResource PasswordToolCardStyle}" VerticalAlignment="Top" Margin="0,0,0,4">
+                        <Border Style="{StaticResource PasswordToolCardStyle}" HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="960" Margin="24,0,32,24">
                             <Grid>
                                 <StackPanel x:Name="HashGeneratePanel" Spacing="16">
                                     <StackPanel Spacing="4">
@@ -550,7 +571,7 @@
                         Title="Hash operation could not continue" />
                 </Grid>
 
-                <ScrollViewer x:Name="BackupPage" MaxWidth="960" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed" IsEnabled="{x:Bind local:MainPage.Not(ViewModel.Backup.IsBusy), Mode=OneWay}">
+                <ScrollViewer x:Name="BackupPage" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed" IsEnabled="{x:Bind local:MainPage.Not(ViewModel.Backup.IsBusy), Mode=OneWay}">
                     <StackPanel Style="{StaticResource PasswordToolFormStyle}">
                         <StackPanel Spacing="4">
                             <TextBlock Style="{StaticResource PasswordToolPageTitleStyle}" Text="Backup &amp; Recovery" />
@@ -594,9 +615,12 @@
                                 <ListView Height="180" ItemsSource="{x:Bind ViewModel.Backup.Snapshots}" SelectedItem="{x:Bind ViewModel.Backup.SelectedSnapshot, Mode=TwoWay}">
                                     <ListView.ItemTemplate>
                                         <DataTemplate x:DataType="models:VaultSnapshotInfo">
+                                            <StackPanel>
+                                                <TextBlock Text="{x:Bind SecurityStateLabel}" TextWrapping="Wrap" />
                                             <StackPanel Padding="8,6">
                                                 <TextBlock Text="{x:Bind CreatedAtUtc}" />
                                                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind Id}" />
+                                            </StackPanel>
                                             </StackPanel>
                                         </DataTemplate>
                                     </ListView.ItemTemplate>
@@ -608,7 +632,7 @@
                     </StackPanel>
                 </ScrollViewer>
 
-                <Grid x:Name="SecurityCheckPage" MaxWidth="960" Visibility="Collapsed" RowSpacing="16">
+                <Grid x:Name="SecurityCheckPage" Padding="24" Visibility="Collapsed" RowSpacing="16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -653,7 +677,7 @@
                     <InfoBar Grid.Row="3" IsClosable="True" IsOpen="{x:Bind ViewModel.SecurityCheck.IsErrorOpen, Mode=TwoWay}" Message="{x:Bind ViewModel.SecurityCheck.ErrorMessage, Mode=OneWay}" Severity="Error" Title="Security Check could not run" />
                 </Grid>
 
-                <ScrollViewer x:Name="SettingsPage" MaxWidth="960" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                <ScrollViewer x:Name="SettingsPage" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
                     <StackPanel Style="{StaticResource PasswordToolFormStyle}">
                         <StackPanel Spacing="4">
                             <TextBlock Style="{StaticResource PasswordToolPageTitleStyle}" Text="Settings" />
@@ -663,10 +687,17 @@
                         <Border Style="{StaticResource PasswordToolCardStyle}">
                             <StackPanel Spacing="12">
                                 <TextBlock Style="{ThemeResource SubtitleTextBlockStyle}" Text="Login and timeouts" />
-                                <NumberBox Width="280" HorizontalAlignment="Left" Header="Inactivity lock timeout (minutes)" Maximum="120" Minimum="1" SpinButtonPlacementMode="Inline" Value="{x:Bind ViewModel.Settings.InactivityTimeoutMinutes, Mode=TwoWay}" />
-                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="The vault locks after this idle period. Your sign-in session expires after 5 hours." TextWrapping="Wrap" />
+                                <TextBlock Text="Application Login Session — fixed 5 hours" />
+                                <ComboBox x:Name="VaultDurationInput" Header="Keep vault unlocked for" SelectedIndex="0">
+                                    <ComboBoxItem Content="1 minute" /><ComboBoxItem Content="2 minutes" />
+                                    <ComboBoxItem Content="5 minutes" /><ComboBoxItem Content="10 minutes" />
+                                    <ComboBoxItem Content="30 minutes" /><ComboBoxItem Content="1 hour" />
+                                    <ComboBoxItem Content="2 hours" /><ComboBoxItem Content="5 hours" />
+                                </ComboBox>
+                                <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="Vault Session — duration starts at unlock. Activity does not extend it. Changes apply at the next unlock." TextWrapping="Wrap" />
                                 <PasswordBox x:Name="SettingsMasterPassword" AutomationProperties.Name="Master Password for settings" Header="Current Master Password" />
                                 <Button Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Left" Click="SaveSettingsButton_Click" Content="Save security settings" />
+                                <Button HorizontalAlignment="Left" Click="RotateRecoveryKeyButton_Click" Content="Rotate Recovery Key" />
                                 <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" Text="{x:Bind ViewModel.Settings.BackupHealthText, Mode=OneWay}" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>

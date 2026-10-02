@@ -18,7 +18,7 @@ public sealed class VaultServiceTests : IDisposable
         var totpService = new TotpService();
         var secret = totpService.GenerateSecret();
         using var vault = new VaultService(new VaultStorageService(tempDirectory), new EncryptionService(), totpService);
-        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         var group = vault.AddGroup("Database", "#336699");
         var item = vault.AddItem(new VaultItem { Title = "PostgreSQL", Password = "secret", GroupId = group.Id });
         var other = vault.AddItem(new VaultItem { Title = "Other", Password = "keep" });
@@ -54,7 +54,7 @@ public sealed class VaultServiceTests : IDisposable
         var secret = totp.GenerateSecret();
         var storage = new VaultStorageService(tempDirectory);
         using var vault = new VaultService(storage, new EncryptionService(), totp);
-        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        vault.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         vault.ClearSession();
         var config = File.ReadAllText(storage.ConfigPath);
         var payload = File.ReadAllText(storage.VaultPath);
@@ -79,7 +79,7 @@ public sealed class VaultServiceTests : IDisposable
         var code = ComputeTotp(secret);
         var invalidCode = GetInvalidTotpCode(secret, totpService);
 
-        vaultService.InitializeNewVault("correct horse battery staple", secret, code);
+        vaultService.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
         var addedItem = vaultService.AddItem(new VaultItem
         {
             Title = "Email",
@@ -131,7 +131,7 @@ public sealed class VaultServiceTests : IDisposable
 
         using (var vaultService = new VaultService(storage, encryption, totpService, utcNow: () => now))
         {
-            vaultService.InitializeNewVault("correct horse battery staple", secret, code);
+            vaultService.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
             vaultService.AddItem(new VaultItem
             {
                 Title = "Email",
@@ -217,7 +217,7 @@ public sealed class VaultServiceTests : IDisposable
         string backupJson;
         using (var source = new VaultService(new VaultStorageService(sourceDirectory), encryption, totpService))
         {
-            source.InitializeNewVault("source master password", sourceSecret, sourceCode);
+            source.InitializeNewVault("source master password", sourceSecret, sourceCode, RecoveryKeyService.Generate(), true);
             source.AddItem(new VaultItem { Title = "Email", Password = "source-password" });
             source.AddItem(new VaultItem
             {
@@ -232,7 +232,7 @@ public sealed class VaultServiceTests : IDisposable
         var destinationSecret = totpService.GenerateSecret();
         var destinationCode = ComputeTotp(destinationSecret);
         using var destination = new VaultService(destinationStorage, encryption, totpService);
-        destination.InitializeNewVault("destination master password", destinationSecret, destinationCode);
+        destination.InitializeNewVault("destination master password", destinationSecret, destinationCode, RecoveryKeyService.Generate(), true);
         var existing = destination.AddItem(new VaultItem { Title = "Existing", Password = "existing-password" });
 
         var preview = destination.PreviewBackupImport(backupJson, "correct backup passphrase", destinationCode);
@@ -262,7 +262,7 @@ public sealed class VaultServiceTests : IDisposable
         var code = ComputeTotp(secret);
         using var vaultService = new VaultService(storage, encryption, totpService);
 
-        vaultService.InitializeNewVault("correct horse battery staple", secret, code);
+        vaultService.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
 
         Assert.Equal(VaultLoginMode.Hybrid, vaultService.LoginMode);
         Assert.False(vaultService.TrySetLoginMode("incorrect password", VaultLoginMode.GoogleAuthenticatorCode, out _));
@@ -281,7 +281,7 @@ public sealed class VaultServiceTests : IDisposable
         var secret = totpService.GenerateSecret();
         using var vaultService = new VaultService(storage, encryption, totpService);
 
-        vaultService.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret));
+        vaultService.InitializeNewVault("correct horse battery staple", secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         var item = vaultService.AddItem(new VaultItem
         {
             Title = "Private account",
@@ -325,7 +325,7 @@ public sealed class VaultServiceTests : IDisposable
         var secret = totpService.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totpService, utcNow: () => now);
-        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
         var item = vault.AddItem(new VaultItem { Title = "Email", Password = "secret" });
         vault.ClearSession();
         Assert.True(vault.UnlockWithMasterPassword("correct horse battery staple").Success);
@@ -352,10 +352,10 @@ public sealed class VaultServiceTests : IDisposable
         var secret = totpService.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totpService, utcNow: () => now);
-        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
 
         Assert.Equal(
-            new VaultSecuritySettings(1, 5, 300),
+            new VaultSecuritySettings(1, 5, 1),
             vault.SecuritySettings);
         Assert.False(vault.TryUpdateSettings(
             "incorrect master password",
@@ -363,7 +363,7 @@ public sealed class VaultServiceTests : IDisposable
             new VaultSecuritySettings(20, 2),
             out var wrongPasswordError));
         Assert.Contains("incorrect", wrongPasswordError, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new VaultSecuritySettings(1, 5, 300), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(1, 5, 1), vault.SecuritySettings);
 
         Assert.True(vault.VerifyTotpForSensitiveAction(code));
         Assert.True(vault.IsSignInSessionActive);
@@ -405,7 +405,7 @@ public sealed class VaultServiceTests : IDisposable
         var secret = totpService.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totpService);
-        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
 
         Assert.False(vault.TryUpdateSettings(
             "correct horse battery staple",
@@ -425,7 +425,7 @@ public sealed class VaultServiceTests : IDisposable
             new VaultSecuritySettings(10, 5, 15),
             out var durationError));
         Assert.Contains("vault open duration", durationError, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new VaultSecuritySettings(1, 5, 300), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(1, 5, 1), vault.SecuritySettings);
     }
 
     [Fact]
@@ -438,7 +438,7 @@ public sealed class VaultServiceTests : IDisposable
         var storage = new VaultStorageService(tempDirectory);
         using var vault = new VaultService(storage, new EncryptionService(), new TotpService());
 
-        Assert.Equal(new VaultSecuritySettings(1, 5, 300), vault.SecuritySettings);
+        Assert.Equal(new VaultSecuritySettings(1, 5, 1), vault.SecuritySettings);
     }
 
     [Fact]
@@ -463,7 +463,7 @@ public sealed class VaultServiceTests : IDisposable
         var secret = totpService.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totpService);
-        vault.InitializeNewVault("correct horse battery staple", secret, code);
+        vault.InitializeNewVault("correct horse battery staple", secret, code, RecoveryKeyService.Generate(), true);
         const string csv = "name,url,username,password,login_totp\nEmail,https://example.com,user@example.com,password,JBSWY3DPEHPK3PXP";
 
         var plan = vault.PreviewCsvImport(csv, code);

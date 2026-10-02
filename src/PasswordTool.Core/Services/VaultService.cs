@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.ComponentModel;
+using OtpNet;
 using PasswordTool.Core.Models;
 
 namespace PasswordTool.Core.Services;
@@ -22,7 +23,11 @@ public sealed class VaultService : IDisposable
     private VaultData? vaultData;
     private bool isVaultOpen;
     private bool encryptionUsesEnvelope;
+    private bool recoveryKeyRequired;
+    private bool masterPasswordAuthenticated;
     private DateTimeOffset? signInSessionExpiresAt;
+    private DateTimeOffset? vaultExpiresAt;
+    private readonly RecoveryKeyService recoveryKeys = new();
     private bool disposed;
 
     public VaultService()
@@ -62,7 +67,167 @@ public sealed class VaultService : IDisposable
     public string TrustedUnlockTokenPath => storageService.TrustedUnlockTokenPath;
 
     public bool IsSignInSessionActive => signInSessionExpiresAt is { } expiresAt && expiresAt > utcNow();
-    public bool IsVaultUnlocked => IsSignInSessionActive && isVaultOpen && encryptionKey is not null;
+    public DateTimeOffset? LoginExpiresAt => signInSessionExpiresAt;
+    public DateTimeOffset? VaultExpiresAt => vaultExpiresAt;
+    public bool HasActiveVaultSession => IsSignInSessionActive && isVaultOpen && encryptionKey is not null
+        && vaultExpiresAt > utcNow();
+    public bool IsVaultUnlocked => HasActiveVaultSession && !recoveryKeyRequired;
+    public bool NeedsRecoveryKey => storageService.LoadConfig().RecoveryKeySlot is null;
+
+    public void CheckExpiration()
+    {
+        var now = utcNow();
+        if (signInSessionExpiresAt is { } login && now >= login) ClearSession();
+        else if (vaultExpiresAt is { } vault && now >= vault) LockVault();
+    }
+
+    private void BeginVaultDeadline()
+    {
+        var duration = SecuritySettings.VaultOpenDurationMinutes;
+        var deadline = utcNow().AddMinutes(duration);
+        vaultExpiresAt = signInSessionExpiresAt is { } login && login < deadline ? login : deadline;
+    }
+
+    public void SaveRecoveryKey(string masterPassword, string recoveryKey, bool saved)
+    {
+        EnsureOpen(allowRecoverySetup: true);
+        if (recoveryKeyRequired && !masterPasswordAuthenticated)
+            throw new UnauthorizedAccessException("Sign in with the Master Password before creating a Recovery Key.");
+        if (!saved) throw new InvalidOperationException("Confirm that the Recovery Key has been saved.");
+        var config = storageService.LoadConfig();
+        byte[] verification = [];
+        byte[] migratedKey = [];
+        try
+        {
+            if (!TryVerifyCurrentMasterPassword(masterPassword, config, out verification))
+                throw new UnauthorizedAccessException("The Master Password is incorrect.");
+            var payload = storageService.LoadVaultPayload();
+            var key = encryptionKey!;
+            RejectReusedRecoveryKey(recoveryKey, config.RecoveryKeySlot);
+            if (config.Version < 3)
+            {
+                migratedKey = RandomNumberGenerator.GetBytes(32);
+                var migrated = masterPasswordService.CreateEnvelopeConfig(masterPassword, totpSecretBase32!, migratedKey);
+                migrated.CreatedAt = config.CreatedAt;
+                migrated.LastExternalBackupAt = config.LastExternalBackupAt;
+                migrated.LastVerifiedBackupAt = config.LastVerifiedBackupAt;
+                migrated.CredentialRevision = config.CredentialRevision;
+                config = migrated;
+                key = migratedKey;
+                payload = encryptionService.EncryptObject(vaultData, key, MasterPasswordService.VaultContext);
+            }
+            config.RecoveryKeySlot = recoveryKeys.Wrap(recoveryKey, key);
+            if (config.Version < 4) config.VaultOpenDurationMinutes = 1;
+            config.Version = 4;
+            config.CredentialRevision++;
+            config.UpdatedAt = utcNow();
+            EnsureOpen(allowRecoverySetup: true);
+            SaveRecoveryState(config, payload, masterPassword, recoveryKey, key, totpSecretBase32!, requireOpen: true);
+            if (migratedKey.Length > 0)
+            {
+                CryptographicOperations.ZeroMemory(encryptionKey!);
+                encryptionKey = migratedKey;
+                migratedKey = [];
+                encryptionUsesEnvelope = true;
+            }
+            TryDeleteTrustedUnlockToken();
+            recoveryKeyRequired = false;
+        }
+        finally { CryptographicOperations.ZeroMemory(verification); CryptographicOperations.ZeroMemory(migratedKey); }
+    }
+
+    public void ValidateRecoveryKey(string recoveryKey)
+    {
+        ThrowIfDisposed();
+        var config = storageService.LoadConfig();
+        if (config.Version != 4) throw new NotSupportedException("Unsupported Recovery Key configuration.");
+        var key = recoveryKeys.Unwrap(recoveryKey, config.RecoveryKeySlot
+            ?? throw new InvalidOperationException("This vault has no Recovery Key."));
+        try { _ = encryptionService.DecryptObject<VaultData>(storageService.LoadVaultPayload(), key, MasterPasswordService.VaultContext); }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    public void ResetWithRecoveryKey(RecoveryKeyResetRequest request)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(request);
+        if (!request.RecoveryKeySaved) throw new InvalidOperationException("Confirm that the new Recovery Key has been saved.");
+        MasterPasswordService.ValidateNewMasterPassword(request.NewMasterPassword);
+        if (!totpService.IsSecretValid(request.NewTotpSecretBase32)
+            || !totpService.VerifyCode(request.NewTotpSecretBase32, request.TotpConfirmationCode))
+            throw new UnauthorizedAccessException("Authenticator setup could not be verified.");
+        var config = storageService.LoadConfig();
+        if (config.Version != 4) throw new NotSupportedException("Unsupported Recovery Key configuration.");
+        var key = recoveryKeys.Unwrap(request.RecoveryKey, config.RecoveryKeySlot
+            ?? throw new InvalidOperationException("This vault has no Recovery Key."));
+        try
+        {
+            RejectReusedRecoveryKey(request.NewRecoveryKey, config.RecoveryKeySlot);
+            byte[] previousMasterKey = [], previousAuthenticator = [], replacementAuthenticator = [];
+            try
+            {
+                if (masterPasswordService.TryUnlockConfig(request.NewMasterPassword, config, out previousMasterKey, out _))
+                    throw new ArgumentException("Choose a different Master Password.", nameof(request));
+                var previousSecret = encryptionService.DecryptString(config.EncryptedTotpSecret, key, MasterPasswordService.TotpSecretContext);
+                if (!totpService.TryNormalizeWebsiteSecret(previousSecret, out var normalizedPrevious)
+                    || !totpService.TryNormalizeWebsiteSecret(request.NewTotpSecretBase32, out var normalizedReplacement))
+                    throw new CryptographicException("The Authenticator secret is invalid.");
+                previousAuthenticator = Base32Encoding.ToBytes(normalizedPrevious);
+                replacementAuthenticator = Base32Encoding.ToBytes(normalizedReplacement);
+                if (CryptographicOperations.FixedTimeEquals(previousAuthenticator, replacementAuthenticator))
+                    throw new ArgumentException("Set up a new Authenticator.", nameof(request));
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(previousMasterKey);
+                CryptographicOperations.ZeroMemory(previousAuthenticator);
+                CryptographicOperations.ZeroMemory(replacementAuthenticator);
+            }
+            var payload = storageService.LoadVaultPayload();
+            _ = encryptionService.DecryptObject<VaultData>(payload, key, MasterPasswordService.VaultContext);
+            masterPasswordService.RewrapVaultKey(request.NewMasterPassword, config, key);
+            config.RecoveryKeySlot = recoveryKeys.Wrap(request.NewRecoveryKey, key);
+            config.EncryptedTotpSecret = encryptionService.EncryptString(request.NewTotpSecretBase32, key, MasterPasswordService.TotpSecretContext);
+            config.Version = 4;
+            config.CredentialRevision++;
+            config.UpdatedAt = utcNow();
+            SaveRecoveryState(config, payload, request.NewMasterPassword, request.NewRecoveryKey, key, request.NewTotpSecretBase32);
+            TryDeleteTrustedUnlockToken();
+            ClearSession();
+        }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    private void SaveRecoveryState(AppConfig config, string payload, string password, string recoveryKey, byte[] key,
+        string expectedTotpSecret, bool requireOpen = false)
+    {
+        storageService.SaveStateVerified(config, payload, (staged, ciphertext) =>
+        {
+            byte[] master = [], recovery = [];
+            try
+            {
+                if (!masterPasswordService.TryUnlockConfig(password, staged, out master, out var stagedTotpSecret))
+                    throw new CryptographicException("The staged Master wrapper is invalid.");
+                recovery = recoveryKeys.Unwrap(recoveryKey, staged.RecoveryKeySlot!);
+                if (!CryptographicOperations.FixedTimeEquals(key, master) || !CryptographicOperations.FixedTimeEquals(key, recovery))
+                    throw new CryptographicException("The staged key wrappers do not match.");
+                if (!string.Equals(expectedTotpSecret, stagedTotpSecret, StringComparison.Ordinal))
+                    throw new CryptographicException("The staged Authenticator does not match.");
+                _ = encryptionService.DecryptObject<VaultData>(ciphertext, master, MasterPasswordService.VaultContext);
+            }
+            finally { CryptographicOperations.ZeroMemory(master); CryptographicOperations.ZeroMemory(recovery); }
+        }, requireOpen ? () => EnsureOpen(allowRecoverySetup: true) : null);
+    }
+
+    private void RejectReusedRecoveryKey(string candidate, RecoveryKeySlot? previous)
+    {
+        if (previous is null) return;
+        byte[] key;
+        try { key = recoveryKeys.Unwrap(candidate, previous); }
+        catch (CryptographicException) { return; }
+        CryptographicOperations.ZeroMemory(key);
+        throw new ArgumentException("Generate a new Recovery Key.");
+    }
 
     public bool IsGoogleAuthenticatorConfigured
     {
@@ -82,7 +247,7 @@ public sealed class VaultService : IDisposable
             try
             {
                 var config = storageService.LoadConfig();
-                if (config.Version < 3 || config.MasterKeySlot is null || string.IsNullOrWhiteSpace(config.EncryptedTotpSecret) || !storageService.HasTrustedUnlockToken)
+                if (config.Version is < 3 or > 4 || config.MasterKeySlot is null || string.IsNullOrWhiteSpace(config.EncryptedTotpSecret) || !storageService.HasTrustedUnlockToken)
                 {
                     return false;
                 }
@@ -118,6 +283,7 @@ public sealed class VaultService : IDisposable
         {
             ThrowIfDisposed();
             var config = storageService.LoadConfig();
+            if (config.Version < 4) config.VaultOpenDurationMinutes = 1;
             VaultSecuritySettings.Validate(
                 config.InactivityLockTimeoutMinutes,
                 config.SensitiveActionTimeoutMinutes,
@@ -156,9 +322,11 @@ public sealed class VaultService : IDisposable
         }
     }
 
-    public void InitializeNewVault(string masterPassword, string totpSecretBase32, string confirmationTotpCode)
+    public void InitializeNewVault(string masterPassword, string totpSecretBase32, string confirmationTotpCode,
+        string recoveryKey, bool recoveryKeySaved)
     {
         ThrowIfDisposed();
+        if (!recoveryKeySaved) throw new InvalidOperationException("Confirm that the Recovery Key has been saved.");
         if (storageService.HasConfig || storageService.HasVault)
             throw new InvalidOperationException("PasswordTool storage already exists.");
         if (!totpService.IsSecretValid(totpSecretBase32))
@@ -170,9 +338,12 @@ public sealed class VaultService : IDisposable
         try
         {
             var config = masterPasswordService.CreateEnvelopeConfig(masterPassword, totpSecretBase32, vaultKey);
+            config.Version = 4;
+            config.CredentialRevision = 1;
+            config.RecoveryKeySlot = recoveryKeys.Wrap(recoveryKey, vaultKey);
             var data = new VaultData();
             var payload = encryptionService.EncryptObject(data, vaultKey, MasterPasswordService.VaultContext);
-            storageService.SaveState(config, payload);
+            SaveRecoveryState(config, payload, masterPassword, recoveryKey, vaultKey, totpSecretBase32);
 
             ClearSession();
             encryptionKey = vaultKey;
@@ -182,6 +353,7 @@ public sealed class VaultService : IDisposable
             vaultData = data;
             isVaultOpen = true;
             signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
+            BeginVaultDeadline();
             SaveTrustedUnlockToken(config);
         }
         finally { if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey); }
@@ -213,6 +385,7 @@ public sealed class VaultService : IDisposable
         RequireSensitiveTotp(totpCode);
 
         var backupJson = backupService.CreateBackup(vaultData!.Items, passphrase, utcNow());
+        EnsureOpen();
         WriteExternalBackupFile(destinationPath, backupJson,
             path => backupService.InspectBackup(ReadBoundedBackupFile(path), passphrase));
         try
@@ -234,6 +407,8 @@ public sealed class VaultService : IDisposable
         if (storageService.HasConfig || storageService.HasVault)
             throw new InvalidOperationException("Recovery is available only when no PasswordTool storage exists.");
 
+        if (!request.RecoveryKeySaved) throw new InvalidOperationException("Confirm that the Recovery Key has been saved.");
+
         MasterPasswordService.ValidateNewMasterPassword(request.NewMasterPassword);
         if (!totpService.IsSecretValid(request.NewTotpSecretBase32))
             throw new ArgumentException("The generated TOTP secret is invalid.", nameof(request));
@@ -247,13 +422,16 @@ public sealed class VaultService : IDisposable
         try
         {
             var config = masterPasswordService.CreateEnvelopeConfig(request.NewMasterPassword, request.NewTotpSecretBase32, vaultKey);
+            config.Version = 4;
+            config.CredentialRevision = 1;
+            config.RecoveryKeySlot = recoveryKeys.Wrap(request.RecoveryKey, vaultKey);
             config.CreatedAt = now;
             config.UpdatedAt = now;
             config.LastVerifiedBackupAt = now;
             var recoveredVault = new VaultData { Items = recoveredItems.Select(item => Clone(item, includePassword: true)).ToList() };
             NormalizeGroups(recoveredVault, now);
             var payload = encryptionService.EncryptObject(recoveredVault, vaultKey, MasterPasswordService.VaultContext);
-            storageService.SaveState(config, payload);
+            SaveRecoveryState(config, payload, request.NewMasterPassword, request.RecoveryKey, vaultKey, request.NewTotpSecretBase32);
 
             ClearSession();
             encryptionKey = vaultKey;
@@ -263,6 +441,7 @@ public sealed class VaultService : IDisposable
             vaultData = recoveredVault;
             isVaultOpen = true;
             signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
+            BeginVaultDeadline();
             SaveTrustedUnlockToken(config);
         }
         finally { if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey); }
@@ -294,7 +473,8 @@ public sealed class VaultService : IDisposable
     public VaultUnlockResult UnlockWithMasterPassword(string masterPassword)
     {
         ThrowIfDisposed();
-        var signedIn = IsSignInSessionActive;
+        CheckExpiration();
+        var signedIn = signInSessionExpiresAt is not null;
         LockVault();
         byte[]? unlockedKey = null;
         try
@@ -315,34 +495,29 @@ public sealed class VaultService : IDisposable
             var message = string.Empty;
             if (config.Version < 3)
             {
-                if (TryMigrateLegacyVault(masterPassword, config, decryptedVault, decryptedTotpSecret,
-                    out var migratedConfig, out var migratedKey))
-                {
-                    CryptographicOperations.ZeroMemory(unlockedKey);
-                    unlockedKey = migratedKey;
-                    config = migratedConfig;
-                    status = VaultUnlockStatus.UnlockedAndMigrated;
-                }
-                else
-                {
-                    status = VaultUnlockStatus.UnlockedMigrationDeferred;
-                    message = "The vault opened, but its security format could not be upgraded. The original files were preserved; sign in with the Master Password again to retry.";
-                }
+                status = VaultUnlockStatus.UnlockedMigrationDeferred;
+                message = "Save a Recovery Key after sign-in to finish the security upgrade.";
             }
 
             encryptionKey = unlockedKey;
             unlockedKey = null;
             encryptionUsesEnvelope = config.Version >= 3;
+            masterPasswordAuthenticated = true;
+            recoveryKeyRequired = config.RecoveryKeySlot is null;
             totpSecretBase32 = string.IsNullOrWhiteSpace(decryptedTotpSecret) ? null : decryptedTotpSecret;
             vaultData = decryptedVault;
             isVaultOpen = true;
+            if (signedIn) BeginVaultDeadline();
             if (signedIn && !IsSignInSessionActive)
             {
                 ClearSession();
                 return new VaultUnlockResult(VaultUnlockStatus.Failed, "The sign-in session expired. Sign in again.");
             }
-            PurgeExpiredTrash();
-            if (encryptionUsesEnvelope) SaveTrustedUnlockToken(config);
+            if (signedIn && !recoveryKeyRequired)
+            {
+                EnsureOpen();
+                PurgeExpiredTrash();
+            }
             return new VaultUnlockResult(status, message);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
@@ -370,7 +545,7 @@ public sealed class VaultService : IDisposable
         try
         {
             var config = storageService.LoadConfig();
-            if (config.Version < 3 || config.MasterKeySlot is null)
+            if (config.Version is < 3 or > 4 || config.MasterKeySlot is null)
             {
                 errorMessage = "Enter the Master Password once to upgrade this vault before using trusted unlock.";
                 return false;
@@ -412,10 +587,12 @@ public sealed class VaultService : IDisposable
             trustedKey = null;
             encryptionUsesEnvelope = true;
             totpSecretBase32 = decryptedTotpSecret;
+            recoveryKeyRequired = config.RecoveryKeySlot is null;
             vaultData = decryptedVault;
             isVaultOpen = true;
             signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
-            PurgeExpiredTrash();
+            BeginVaultDeadline();
+            if (!recoveryKeyRequired) PurgeExpiredTrash();
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException
@@ -434,6 +611,7 @@ public sealed class VaultService : IDisposable
     public bool VerifyTotpForSession(string code)
     {
         ThrowIfDisposed();
+        CheckExpiration();
         EnsureMasterPasswordUnlocked();
 
         if (totpSecretBase32 is null)
@@ -446,11 +624,27 @@ public sealed class VaultService : IDisposable
             return false;
         }
 
+        CheckExpiration();
+        EnsureMasterPasswordUnlocked();
+        var signedIn = signInSessionExpiresAt is not null;
         isVaultOpen = true;
-        if (!IsSignInSessionActive)
+        if (!signedIn)
             signInSessionExpiresAt = utcNow().AddMinutes(VaultSecuritySettings.MaximumSessionDurationMinutes);
+        if (vaultExpiresAt is null) BeginVaultDeadline();
+        if (!signedIn && masterPasswordAuthenticated && !recoveryKeyRequired)
+            SaveTrustedUnlockToken(storageService.LoadConfig());
+        CheckExpiration();
+        EnsureMasterPasswordUnlocked();
+        if (!recoveryKeyRequired)
+        {
+            EnsureOpen();
+            PurgeExpiredTrash();
+        }
         return true;
     }
+
+    public bool ValidateAuthenticatorSetup(string secret, string code) =>
+        totpService.IsSecretValid(secret) && totpService.VerifyCode(secret, code);
 
     public bool VerifyTotpForSensitiveAction(string code)
     {
@@ -514,7 +708,7 @@ public sealed class VaultService : IDisposable
             config.SensitiveActionTimeoutMinutes = securitySettings.SensitiveActionTimeoutMinutes;
             config.VaultOpenDurationMinutes = securitySettings.VaultOpenDurationMinutes;
             config.UpdatedAt = utcNow();
-            storageService.SaveConfig(config);
+            SaveSessionConfig(config);
             return true;
         }
         catch (Exception ex) when (ex is IOException
@@ -552,8 +746,9 @@ public sealed class VaultService : IDisposable
             }
 
             masterPasswordService.RewrapVaultKey(newMasterPassword, config, encryptionKey!);
+            config.CredentialRevision++;
             config.UpdatedAt = utcNow();
-            storageService.SaveConfig(config);
+            SaveSessionConfig(config);
             TryDeleteTrustedUnlockToken();
             SaveTrustedUnlockToken(config);
             return true;
@@ -607,8 +802,9 @@ public sealed class VaultService : IDisposable
             }
 
             config.EncryptedTotpSecret = encryptionService.EncryptString(newTotpSecretBase32, encryptionKey!, MasterPasswordService.TotpSecretContext);
+            config.CredentialRevision++;
             config.UpdatedAt = utcNow();
-            storageService.SaveConfig(config);
+            SaveSessionConfig(config);
             totpSecretBase32 = newTotpSecretBase32;
             TryDeleteTrustedUnlockToken();
             SaveTrustedUnlockToken(config);
@@ -648,7 +844,7 @@ public sealed class VaultService : IDisposable
                 return false;
             }
 
-            storageService.RestoreSnapshot(snapshotId);
+            storageService.RestoreSnapshot(snapshotId, () => EnsureOpen());
             ClearSession();
             return true;
         }
@@ -669,19 +865,23 @@ public sealed class VaultService : IDisposable
         ThrowIfDisposed();
         EnsureOpen();
 
-        return vaultData!.Items
+        var items = vaultData!.Items
             .Where(item => !item.IsDeleted)
             .OrderBy(item => item.Title, StringComparer.CurrentCultureIgnoreCase)
             .Select(CloneForList)
             .ToList();
+        EnsureOpen();
+        return items;
     }
 
     public IReadOnlyList<VaultGroup> GetGroups()
     {
         ThrowIfDisposed();
         EnsureOpen();
-        return vaultData!.Groups.OrderBy(group => group.SortOrder).ThenBy(group => group.Name, StringComparer.CurrentCultureIgnoreCase)
+        var groups = vaultData!.Groups.OrderBy(group => group.SortOrder).ThenBy(group => group.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(CloneGroup).ToList();
+        EnsureOpen();
+        return groups;
     }
 
     public VaultGroup AddGroup(string name, string? accentColor = null)
@@ -722,15 +922,16 @@ public sealed class VaultService : IDisposable
         if (totpSecretBase32 is null || !totpService.VerifyCode(totpSecretBase32, totpCode))
             throw new UnauthorizedAccessException("Incorrect authenticator code. Please try again.");
 
-        var previousItems = vaultData.Items;
-        var previousGroups = vaultData.Groups;
-        vaultData.Items = previousItems.Where(item => item.GroupId != id).ToList();
-        vaultData.Groups = previousGroups.Where(candidate => candidate.Id != id).ToList();
+        var data = vaultData;
+        var previousItems = data.Items;
+        var previousGroups = data.Groups;
+        data.Items = previousItems.Where(item => item.GroupId != id).ToList();
+        data.Groups = previousGroups.Where(candidate => candidate.Id != id).ToList();
         try { SaveVault(); }
         catch
         {
-            vaultData.Items = previousItems;
-            vaultData.Groups = previousGroups;
+            data.Items = previousItems;
+            data.Groups = previousGroups;
             throw;
         }
     }
@@ -740,7 +941,9 @@ public sealed class VaultService : IDisposable
         ThrowIfDisposed();
         EnsureOpen();
         RequireSensitiveTotp(totpCode);
-        return Clone(FindItem(id), includePassword: true);
+        var item = Clone(FindItem(id), includePassword: true);
+        EnsureOpen();
+        return item;
     }
 
     public IReadOnlyList<PasswordHistoryEntry> GetPasswordHistory(Guid id, string totpCode)
@@ -749,20 +952,24 @@ public sealed class VaultService : IDisposable
         EnsureOpen();
         RequireSensitiveTotp(totpCode);
         var item = FindItem(id);
-        return item.PasswordHistory
+        var history = item.PasswordHistory
             .OrderByDescending(entry => entry.ChangedAt)
             .Select(entry => new PasswordHistoryEntry { Password = entry.Password, ChangedAt = entry.ChangedAt })
             .ToList();
+        EnsureOpen();
+        return history;
     }
 
     public IReadOnlyList<VaultItem> GetDeletedItems()
     {
         ThrowIfDisposed();
         EnsureOpen();
-        return vaultData!.Items.Where(item => item.IsDeleted)
+        var items = vaultData!.Items.Where(item => item.IsDeleted)
             .OrderByDescending(item => item.DeletedAt)
             .Select(CloneForList)
             .ToList();
+        EnsureOpen();
+        return items;
     }
 
     public void RestoreDeletedItem(Guid id)
@@ -830,18 +1037,22 @@ public sealed class VaultService : IDisposable
             }
         }
 
-        return findings
+        var result = findings
             .OrderBy(finding => finding.Type)
             .ThenBy(finding => finding.Title, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(finding => finding.ItemId)
             .ToList();
+        EnsureOpen();
+        return result;
     }
 
     public string GetUsername(Guid id)
     {
         ThrowIfDisposed();
         EnsureOpen();
-        return FindItem(id).Username;
+        var username = FindItem(id).Username;
+        EnsureOpen();
+        return username;
     }
 
     public string GetPassword(Guid id, string totpCode)
@@ -855,6 +1066,7 @@ public sealed class VaultService : IDisposable
             throw new InvalidOperationException("This vault item stores recovery codes, not a password.");
         }
 
+        EnsureOpen();
         return item.Password;
     }
 
@@ -865,7 +1077,9 @@ public sealed class VaultService : IDisposable
         RequireSensitiveTotp(totpCode);
 
         var item = FindItem(id);
-        return item.RecoveryCodes.ToList();
+        var codes = item.RecoveryCodes.ToList();
+        EnsureOpen();
+        return codes;
     }
 
     public TotpCodeResult GetWebsiteTotpCode(Guid id, string totpCode)
@@ -879,7 +1093,9 @@ public sealed class VaultService : IDisposable
             throw new InvalidOperationException("This vault item does not contain a website TOTP secret.");
         }
 
-        return totpService.GetCurrentCode(item.TotpSecretBase32, utcNow());
+        var code = totpService.GetCurrentCode(item.TotpSecretBase32, utcNow());
+        EnsureOpen();
+        return code;
     }
 
     public string ExportBackupJson(string passphrase, string totpCode)
@@ -887,7 +1103,9 @@ public sealed class VaultService : IDisposable
         ThrowIfDisposed();
         EnsureOpen();
         RequireSensitiveTotp(totpCode);
-        return backupService.CreateBackup(vaultData!.Items, passphrase, utcNow());
+        var backup = backupService.CreateBackup(vaultData!.Items, passphrase, utcNow());
+        EnsureOpen();
+        return backup;
     }
 
     public VaultBackupImportPlan PreviewBackupImport(string backupJson, string passphrase, string totpCode)
@@ -897,7 +1115,9 @@ public sealed class VaultService : IDisposable
         RequireSensitiveTotp(totpCode);
 
         var importedItems = backupService.ReadBackup(backupJson, passphrase);
-        return backupService.CreateImportPlan(importedItems, vaultData!.Items);
+        var plan = backupService.CreateImportPlan(importedItems, vaultData!.Items);
+        EnsureOpen();
+        return plan;
     }
 
     public int ImportBackupJson(string backupJson, string passphrase, string totpCode)
@@ -924,9 +1144,11 @@ public sealed class VaultService : IDisposable
             .Select(item => Clone(item, includePassword: true))
             .ToList();
 
-        foreach (var item in newItems.Where(item => item.GroupId is not null && !vaultData.Groups.Any(group => group.Id == item.GroupId))) item.GroupId = null;
+        EnsureOpen();
+        var data = vaultData!;
+        foreach (var item in newItems.Where(item => item.GroupId is not null && !data.Groups.Any(group => group.Id == item.GroupId))) item.GroupId = null;
 
-        vaultData.Items.AddRange(newItems);
+        data.Items.AddRange(newItems);
         try
         {
             SaveVault();
@@ -936,7 +1158,7 @@ public sealed class VaultService : IDisposable
         {
             foreach (var newItem in newItems)
             {
-                vaultData.Items.Remove(newItem);
+                data.Items.Remove(newItem);
             }
 
             throw;
@@ -949,7 +1171,9 @@ public sealed class VaultService : IDisposable
         EnsureOpen();
         RequireSensitiveTotp(totpCode);
         var importedItems = csvImportService.Parse(csv);
-        return csvImportService.CreateImportPlan(importedItems, vaultData!.Items);
+        var plan = csvImportService.CreateImportPlan(importedItems, vaultData!.Items);
+        EnsureOpen();
+        return plan;
     }
 
     public int ImportCsv(string csv, string totpCode)
@@ -966,6 +1190,8 @@ public sealed class VaultService : IDisposable
             return 0;
         }
 
+        EnsureOpen();
+        var data = vaultData!;
         var now = utcNow();
         MigrateImportedFolders(newItems, now);
         foreach (var item in newItems)
@@ -977,7 +1203,7 @@ public sealed class VaultService : IDisposable
             ValidateVaultItem(item);
         }
 
-        vaultData.Items.AddRange(newItems);
+        data.Items.AddRange(newItems);
         try
         {
             SaveVault();
@@ -985,7 +1211,7 @@ public sealed class VaultService : IDisposable
         }
         catch
         {
-            foreach (var item in newItems) vaultData.Items.Remove(item);
+            foreach (var item in newItems) data.Items.Remove(item);
             throw;
         }
     }
@@ -1093,6 +1319,8 @@ public sealed class VaultService : IDisposable
         vaultData = null;
         isVaultOpen = false;
         encryptionUsesEnvelope = false;
+        masterPasswordAuthenticated = false;
+        vaultExpiresAt = null;
     }
 
     public void Dispose()
@@ -1108,11 +1336,12 @@ public sealed class VaultService : IDisposable
 
     private void SaveVault()
     {
-        EnsureMasterPasswordUnlocked();
+        EnsureOpen();
         var payload = encryptionUsesEnvelope
             ? encryptionService.EncryptObject(vaultData, encryptionKey!, MasterPasswordService.VaultContext)
             : encryptionService.EncryptObject(vaultData, encryptionKey!);
-        storageService.SaveVaultPayload(payload);
+        EnsureOpen();
+        storageService.SaveStateVerified(storageService.LoadConfig(), payload, (_, _) => EnsureOpen(), () => EnsureOpen());
     }
 
     private void UpdateBackupHealth(
@@ -1123,7 +1352,13 @@ public sealed class VaultService : IDisposable
         if (lastExternalBackupAt.HasValue) config.LastExternalBackupAt = lastExternalBackupAt;
         if (lastVerifiedBackupAt.HasValue) config.LastVerifiedBackupAt = lastVerifiedBackupAt;
         config.UpdatedAt = utcNow();
-        storageService.SaveConfig(config);
+        SaveSessionConfig(config);
+    }
+
+    private void SaveSessionConfig(AppConfig config)
+    {
+        EnsureOpen();
+        storageService.SaveStateVerified(config, storageService.LoadVaultPayload(), (_, _) => EnsureOpen(), () => EnsureOpen());
     }
 
     private static string ReadBoundedBackupFile(string backupPath)
@@ -1218,7 +1453,7 @@ public sealed class VaultService : IDisposable
         }
     }
 
-    private static byte[] ComputeConfigFingerprint(AppConfig config)
+    internal static byte[] ComputeConfigFingerprint(AppConfig config)
     {
         var slot = config.MasterKeySlot ?? throw new InvalidOperationException("The Master Password key slot is missing.");
         var fingerprintInput = string.Join('\n',
@@ -1228,7 +1463,7 @@ public sealed class VaultService : IDisposable
             slot.KdfMemorySizeKb.ToString(System.Globalization.CultureInfo.InvariantCulture),
             slot.KdfParallelism.ToString(System.Globalization.CultureInfo.InvariantCulture),
             slot.KeySizeBytes.ToString(System.Globalization.CultureInfo.InvariantCulture), slot.SaltBase64,
-            slot.WrappedVaultKey, config.EncryptedTotpSecret);
+            slot.WrappedVaultKey, config.EncryptedTotpSecret, config.CredentialRevision.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintInput));
     }
     private VaultItem FindItem(Guid id)
@@ -1255,56 +1490,6 @@ public sealed class VaultService : IDisposable
         return true;
     }
 
-    private bool TryMigrateLegacyVault(string masterPassword, AppConfig legacyConfig, VaultData data,
-        string authenticatorSecret, out AppConfig migratedConfig, out byte[] migratedKey)
-    {
-        migratedConfig = legacyConfig;
-        migratedKey = [];
-        var vaultKey = RandomNumberGenerator.GetBytes(MasterPasswordService.DefaultKeySizeBytes);
-        byte[]? verificationKey = null;
-        try
-        {
-            var candidate = masterPasswordService.CreateEnvelopeConfig(masterPassword, authenticatorSecret, vaultKey);
-            candidate.CreatedAt = legacyConfig.CreatedAt;
-            candidate.UpdatedAt = utcNow();
-            candidate.LoginMode = legacyConfig.LoginMode;
-            candidate.InactivityLockTimeoutMinutes = legacyConfig.InactivityLockTimeoutMinutes;
-            candidate.SensitiveActionTimeoutMinutes = legacyConfig.SensitiveActionTimeoutMinutes;
-            candidate.VaultOpenDurationMinutes = legacyConfig.VaultOpenDurationMinutes;
-            candidate.LastExternalBackupAt = legacyConfig.LastExternalBackupAt;
-            candidate.LastVerifiedBackupAt = legacyConfig.LastVerifiedBackupAt;
-            var payload = encryptionService.EncryptObject(data, vaultKey, MasterPasswordService.VaultContext);
-
-            if (!masterPasswordService.TryUnlockConfig(masterPassword, candidate, out verificationKey, out var verifiedSecret)
-                || !CryptographicOperations.FixedTimeEquals(vaultKey, verificationKey)
-                || !string.Equals(authenticatorSecret, verifiedSecret, StringComparison.Ordinal))
-                throw new CryptographicException("The staged envelope configuration could not be verified.");
-            _ = encryptionService.DecryptObject<VaultData>(payload, verificationKey, MasterPasswordService.VaultContext);
-
-            storageService.SaveStateVerified(candidate, payload, (stagedConfig, stagedPayload) =>
-            {
-                if (stagedConfig.Version != 3 || stagedConfig.MasterKeySlot is null)
-                    throw new InvalidOperationException("The staged envelope configuration is invalid.");
-                _ = encryptionService.DecryptObject<VaultData>(stagedPayload, vaultKey, MasterPasswordService.VaultContext);
-            });
-            migratedConfig = candidate;
-            migratedKey = vaultKey;
-            vaultKey = [];
-            TryDeleteTrustedUnlockToken();
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
-            or InvalidOperationException or CryptographicException or FormatException or NotSupportedException
-            or System.Text.Json.JsonException)
-        {
-            return false;
-        }
-        finally
-        {
-            if (vaultKey.Length > 0) CryptographicOperations.ZeroMemory(vaultKey);
-            if (verificationKey is { Length: > 0 }) CryptographicOperations.ZeroMemory(verificationKey);
-        }
-    }
     private void PurgeExpiredTrash()
     {
         var cutoff = utcNow().AddDays(-30);
@@ -1328,8 +1513,9 @@ public sealed class VaultService : IDisposable
         }
     }
 
-    private void EnsureOpen()
+    private void EnsureOpen(bool allowRecoverySetup = false)
     {
+        CheckExpiration();
         EnsureMasterPasswordUnlocked();
 
         if (!isVaultOpen)
@@ -1339,6 +1525,9 @@ public sealed class VaultService : IDisposable
 
         if (totpSecretBase32 is null)
             throw new UnauthorizedAccessException("A Google Authenticator secret is required to open the vault.");
+
+        if (recoveryKeyRequired && !allowRecoverySetup)
+            throw new InvalidOperationException("Save a Recovery Key before accessing the vault.");
 
         if (!IsSignInSessionActive)
         {

@@ -19,7 +19,7 @@ public sealed class BackupViewModelTests : IDisposable
         var totp = new TotpService();
         var secret = totp.GenerateSecret();
         service = new VaultService(new VaultStorageService(directory), new EncryptionService(), totp);
-        service.InitializeNewVault("a strong master password", secret, totp.GetCurrentCode(secret).Code);
+        service.InitializeNewVault("a strong master password", secret, totp.GetCurrentCode(secret).Code, RecoveryKeyService.Generate(), true);
         flow = new AppFlowCoordinator(service, runner, totp);
         workspace = new VaultWorkspaceViewModel(flow);
         model = new BackupViewModel(flow, picker, null!, new UserErrorMapper(), workspace);
@@ -110,6 +110,35 @@ public sealed class BackupViewModelTests : IDisposable
         model.CanImportBackup = true;
         model.BackupPassword = string.Empty;
         Assert.False(model.CanImportBackup);
+    }
+
+    [Fact]
+    public async Task Picker_from_previous_unlock_cannot_export_or_clear_a_new_action()
+    {
+        model.BackupPassword = model.ConfirmBackupPassword = Password;
+        var previousPicker = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        picker.Pending = previousPicker;
+        var previousExport = model.ExportAsync();
+        await flow.LockAsync();
+        model.Clear();
+        Assert.True((await flow.UnlockAsync("a strong master password", string.Empty)).Success);
+        model.BackupPassword = model.ConfirmBackupPassword = Password;
+        var currentPicker = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        picker.Pending = currentPicker;
+        var currentExport = model.ExportAsync();
+        var previousPath = Path.Combine(directory, "previous-unlock.json");
+        previousPicker.SetResult(previousPath);
+        await previousExport;
+        Assert.False(File.Exists(previousPath));
+        Assert.True(model.IsBusy);
+        Assert.Equal(Password, model.BackupPassword);
+        Assert.False(model.IsStatusOpen);
+        var currentPath = Path.Combine(directory, "current-unlock.json");
+        currentPicker.SetResult(currentPath);
+        await currentExport;
+        Assert.True(File.Exists(currentPath));
+        Assert.False(model.IsBusy);
+        Assert.Equal("Backup created and verified.", model.StatusMessage);
     }
 
     [Theory]

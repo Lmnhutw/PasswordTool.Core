@@ -27,14 +27,15 @@ internal sealed class SensitiveClipboardService : ISensitiveClipboardService, ID
         {
             var package = new DataPackage();
             package.SetText(value);
-            Clipboard.SetContent(package);
-            Clipboard.Flush();
+            if (!Clipboard.SetContentWithOptions(package, new ClipboardContentOptions
+                { IsAllowedInHistory = false, IsRoamable = false }))
+                throw new InvalidOperationException("The clipboard is unavailable.");
 
             lock (sync)
             {
                 ownershipGeneration++;
                 ClearOwnedHash();
-                ownedValueHash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+                ownedValueHash = HashValue(value);
                 expiration?.Cancel();
                 expiration?.Dispose();
                 expiration = new CancellationTokenSource();
@@ -66,7 +67,7 @@ internal sealed class SensitiveClipboardService : ISensitiveClipboardService, ID
                 var content = Clipboard.GetContent();
                 if (!content.Contains(StandardDataFormats.Text)) return;
                 var current = await content.GetTextAsync();
-                var currentHash = SHA256.HashData(Encoding.UTF8.GetBytes(current));
+                var currentHash = HashValue(current);
                 try
                 {
                     lock (sync)
@@ -142,6 +143,13 @@ internal sealed class SensitiveClipboardService : ISensitiveClipboardService, ID
         if (ownedValueHash is null) return;
         CryptographicOperations.ZeroMemory(ownedValueHash);
         ownedValueHash = null;
+    }
+
+    private static byte[] HashValue(string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        try { return SHA256.HashData(bytes); }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
     }
 
     public void Dispose()

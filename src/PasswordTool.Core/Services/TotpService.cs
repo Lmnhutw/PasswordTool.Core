@@ -11,7 +11,9 @@ public sealed partial class TotpService
 
     public string GenerateSecret()
     {
-        return Base32Encoding.ToString(RandomNumberGenerator.GetBytes(SecretSizeBytes));
+        var secretBytes = RandomNumberGenerator.GetBytes(SecretSizeBytes);
+        try { return Base32Encoding.ToString(secretBytes); }
+        finally { CryptographicOperations.ZeroMemory(secretBytes); }
     }
 
     public string CreateOtpAuthUri(string secretBase32, string issuer = "PasswordTool", string? accountName = null)
@@ -68,7 +70,9 @@ public sealed partial class TotpService
     {
         try
         {
-            return Base32Encoding.ToBytes(NormalizeSecret(secretBase32)).Length >= 10;
+            var secretBytes = Base32Encoding.ToBytes(NormalizeSecret(secretBase32));
+            try { return secretBytes.Length >= 10; }
+            finally { CryptographicOperations.ZeroMemory(secretBytes); }
         }
         catch (Exception ex) when (ex is ArgumentException or FormatException)
         {

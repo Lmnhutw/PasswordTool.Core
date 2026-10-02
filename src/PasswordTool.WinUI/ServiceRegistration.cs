@@ -12,7 +12,13 @@ internal static class ServiceRegistration
     public static ServiceProvider Build()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<VaultService>();
+#if DEBUG
+        var testDirectory = Environment.GetEnvironmentVariable("PASSWORDTOOL_UI_TEST_DIRECTORY");
+        if (!string.IsNullOrWhiteSpace(testDirectory))
+            services.AddSingleton(new VaultService(new VaultStorageService(testDirectory), new EncryptionService(), new TotpService()));
+        else
+#endif
+            services.AddSingleton<VaultService>();
         services.AddSingleton<TotpService>();
         services.AddSingleton<PasswordGeneratorService>();
         services.AddSingleton<DialogLifetime>();

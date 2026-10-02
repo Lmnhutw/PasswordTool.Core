@@ -34,12 +34,15 @@ public sealed partial class SecurityCheckViewModel(
         }
         catch (Exception exception)
         {
-            ErrorMessage = errorMapper.Map(exception);
-            IsErrorOpen = true;
+            if (flow.IsCurrentUnlock(version) && exception is not OperationCanceledException)
+            {
+                ErrorMessage = errorMapper.Map(exception);
+                IsErrorOpen = true;
+            }
         }
         finally
         {
-            IsBusy = false;
+            if (flow.IsCurrentUnlock(version)) IsBusy = false;
         }
     }
 
@@ -50,5 +53,6 @@ public sealed partial class SecurityCheckViewModel(
         Summary = "Run a local scan to find weak, reused, and old passwords.";
         ErrorMessage = string.Empty;
         IsErrorOpen = false;
+        IsBusy = false;
     }
 }

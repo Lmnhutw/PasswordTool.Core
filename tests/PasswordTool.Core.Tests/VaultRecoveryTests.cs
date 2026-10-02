@@ -50,12 +50,13 @@ public sealed class VaultRecoveryTests : IDisposable
             BackupPassphrase = BackupPassphrase,
             NewMasterPassword = NewMasterPassword,
             NewTotpSecretBase32 = secret,
-            TotpConfirmationCode = code
+            TotpConfirmationCode = code,
+            RecoveryKey = RecoveryKeyService.Generate(), RecoveryKeySaved = true
         });
 
         Assert.True(vault.IsInitialized);
         var config = storage.LoadConfig();
-        Assert.Equal(3, config.Version);
+        Assert.Equal(4, config.Version);
         Assert.NotNull(config.MasterKeySlot);
         Assert.Equal(MasterPasswordService.Argon2idAlgorithm, config.MasterKeySlot!.KdfAlgorithm);
         Assert.NotEqual(oldConfig.SaltBase64, config.SaltBase64);
@@ -112,7 +113,8 @@ public sealed class VaultRecoveryTests : IDisposable
             BackupPassphrase = BackupPassphrase,
             NewMasterPassword = NewMasterPassword,
             NewTotpSecretBase32 = secret,
-            TotpConfirmationCode = GetInvalidTotpCode(secret, totp)
+            TotpConfirmationCode = GetInvalidTotpCode(secret, totp),
+            RecoveryKey = RecoveryKeyService.Generate(), RecoveryKeySaved = true
         }));
         AssertNoVaultPair(storage);
 
@@ -122,7 +124,8 @@ public sealed class VaultRecoveryTests : IDisposable
             BackupPassphrase = BackupPassphrase,
             NewMasterPassword = "short",
             NewTotpSecretBase32 = secret,
-            TotpConfirmationCode = ComputeTotp(secret)
+            TotpConfirmationCode = ComputeTotp(secret),
+            RecoveryKey = RecoveryKeyService.Generate(), RecoveryKeySaved = true
         }));
         AssertNoVaultPair(storage);
 
@@ -132,7 +135,8 @@ public sealed class VaultRecoveryTests : IDisposable
             BackupPassphrase = "incorrect backup passphrase",
             NewMasterPassword = NewMasterPassword,
             NewTotpSecretBase32 = secret,
-            TotpConfirmationCode = ComputeTotp(secret)
+            TotpConfirmationCode = ComputeTotp(secret),
+            RecoveryKey = RecoveryKeyService.Generate(), RecoveryKeySaved = true
         }));
         AssertNoVaultPair(storage);
     }
@@ -176,7 +180,8 @@ public sealed class VaultRecoveryTests : IDisposable
             BackupPassphrase = BackupPassphrase,
             NewMasterPassword = NewMasterPassword,
             NewTotpSecretBase32 = secret,
-            TotpConfirmationCode = ComputeTotp(secret)
+            TotpConfirmationCode = ComputeTotp(secret),
+            RecoveryKey = RecoveryKeyService.Generate(), RecoveryKeySaved = true
         }));
         AssertNoVaultPair(storage);
     }
@@ -196,7 +201,8 @@ public sealed class VaultRecoveryTests : IDisposable
             BackupPassphrase = BackupPassphrase,
             NewMasterPassword = NewMasterPassword,
             NewTotpSecretBase32 = "ignored",
-            TotpConfirmationCode = "000000"
+            TotpConfirmationCode = "000000",
+            RecoveryKey = RecoveryKeyService.Generate(), RecoveryKeySaved = true
         }));
         Assert.Equal("existing-config", File.ReadAllText(configPath));
         Assert.False(File.Exists(storage.VaultPath));
@@ -241,7 +247,7 @@ public sealed class VaultRecoveryTests : IDisposable
         var secret = totp.GenerateSecret();
         var code = ComputeTotp(secret);
         using var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
-        vault.InitializeNewVault(NewMasterPassword, secret, code);
+        vault.InitializeNewVault(NewMasterPassword, secret, code, RecoveryKeyService.Generate(), true);
         Assert.Null(vault.LastExternalBackupAt);
         Assert.Null(vault.LastVerifiedBackupAt);
 
@@ -254,7 +260,7 @@ public sealed class VaultRecoveryTests : IDisposable
         Assert.Equal(now, vault.LastExternalBackupAt);
         Assert.Equal(now, vault.LastVerifiedBackupAt);
         var createdAt = now;
-        now = now.AddMinutes(1);
+        now = now.AddSeconds(30);
 
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
             vault.VerifyExternalBackupFile(path, "incorrect backup passphrase"));
@@ -321,7 +327,7 @@ public sealed class VaultRecoveryTests : IDisposable
         var totp = new TotpService();
         var secret = totp.GenerateSecret();
         using var vault = new VaultService(storage, new EncryptionService(), totp, utcNow: () => now);
-        vault.InitializeNewVault(NewMasterPassword, secret, ComputeTotp(secret));
+        vault.InitializeNewVault(NewMasterPassword, secret, ComputeTotp(secret), RecoveryKeyService.Generate(), true);
         saves = 0;
         fail = failMetadata;
         var path = Path.Combine(tempDirectory, "backup.json");

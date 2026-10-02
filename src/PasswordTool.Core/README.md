@@ -9,7 +9,7 @@ The reusable domain and security layer for PasswordTool. The WinUI desktop UI an
 - Master Password validation, Argon2id KEK derivation, AES-GCM DEK wrapping, and legacy PBKDF2 compatibility
 - AES-256-GCM encryption/decryption and encrypted local-vault persistence
 - TOTP generation/verification and Windows-DPAPI trusted-unlock tokens
-- Master-Password-authorized, range-validated inactivity and sensitive-action timeout settings
+- Master-Password-authorized vault durations and fixed five-hour login deadlines
 - Optional website TOTP secrets and current-code generation
 - Vault item validation, CRUD, recovery-code parsing, and sensitive-action verification
 - Encrypted, versioned backup creation, safe authenticated inspection, import planning, and atomic new-machine recovery
@@ -20,9 +20,9 @@ The reusable domain and security layer for PasswordTool. The WinUI desktop UI an
 
 ## Storage and sign-in contract
 
-For a new v3 vault, `.config` contains a versioned Master key slot (Argon2id metadata plus the AES-GCM-wrapped random DEK) and a purpose-bound, DEK-encrypted Authenticator secret; `.storage` is encrypted by the DEK. `.trusted-unlock` contains separate one-day DPAPI-CurrentUser blobs for the Authenticator secret and DEK, bound to a configuration fingerprint. The app opens the Authenticator blob and verifies TOTP before opening the DEK blob. TOTP is an application gate, not an independent cryptographic factor against a process already acting as the same Windows user.
+For a new v4 config, `.config` contains Master and Recovery key slots wrapping the same random DEK, a credential revision, and the DEK-encrypted Authenticator secret. Vault ciphertext retains the v3 context. Recovery keys are 32 random bytes encoded as eight hex groups with an RK1 prefix. Only the AES-GCM wrapper is persisted. Trusted tokens bind to the credential revision as part of the configuration fingerprint. TOTP remains an application gate rather than an independent encryption key.
 
-Recovery accepts only completely uninitialized storage. It validates the encrypted backup and all new credentials before a single paired state commit, then creates the trusted token. The recovered config uses a fresh random DEK, Argon2id salt, Master key slot, and Authenticator secret. Legacy v1/v2 vaults migrate only after successful Master Password unlock; staged v3 state is read back and cryptographically verified before the old pair is replaced. Nullable backup-health timestamps remain compatible with older config files; no destination path or backup passphrase is persisted.
+Backup restoration accepts only uninitialized storage and requires Recovery Key confirmation. RecoveryKeyResetRequest is separate: it validates the current Recovery Key and vault, new password, saved replacement key, and new Authenticator OTP before a verified paired commit. It preserves ciphertext and clears sessions/tokens. SaveRecoveryKey requires Master Password and a verified login; it completes v3 enrollment without rewriting ciphertext and migrates legacy payloads once. Failed or cancelled enrollment leaves storage unchanged and denies workspace access. Snapshots retain their original credentials and revisions.
 
 File names and Hidden/System attributes are obfuscation only. The security boundary is the Master Password-derived KEK, wrapped random DEK, authenticated encryption, DPAPI scope, and the Windows user account.
 
@@ -36,4 +36,4 @@ File names and Hidden/System attributes are obfuscation only. The security bound
 - Maintain backward compatibility for vault items that predate recovery codes: their missing `Type` defaults to `Password`.
 - New optional item metadata must keep safe defaults so older encrypted vault and backup payloads continue to deserialize.
 - UpdatedAt is not password age. PasswordChangedAt is nullable for legacy payloads and is resolved in Core from valid history, UpdatedAt, then CreatedAt; future dates are ignored. The 365-day Security Check threshold is inclusive and findings never contain a secret.
-- Older configs without timeout fields default to a 10-minute inactivity lock and five-minute sensitive-action session. Never accept persisted or requested values outside Core's supported ranges.
+- Older configs migrate to a one-minute vault duration. Supported durations are 1, 2, 5, 10, 30, 60, 120, and 300 minutes. Neither activity nor unlocking extends the login deadline; duration edits apply on the next unlock.

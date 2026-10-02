@@ -1,0 +1,321 @@
+using System.Security.Cryptography;
+using PasswordTool.Core.Models;
+using PasswordTool.Core.Services;
+
+namespace PasswordTool.Presentation.Tests;
+
+public sealed class RecoveryAndActionFlowTests
+{
+    [Fact]
+    public async Task New_setup_requires_saved_recovery_key_before_creating_storage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "PasswordTool.Presentation.Tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var totp = new TotpService();
+            using var vault = new VaultService(new VaultStorageService(directory), new EncryptionService(), totp);
+            using var runner = new VaultOperationRunner();
+            var flow = new AppFlowCoordinator(vault, runner, totp);
+            flow.BeginNewVault();
+            var setup = flow.PrepareAuthenticator(Context.Password, Context.Password);
+            var code = totp.GetCurrentCode(setup.SecretBase32).Code;
+            Assert.True(await flow.ValidateAuthenticatorSetupAsync(setup, code));
+            var key = RecoveryKeyService.Generate();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => flow.CompleteNewVaultAsync(Context.Password, setup, code, key, false));
+            Assert.False(File.Exists(vault.ConfigPath));
+            Assert.False(File.Exists(vault.VaultPath));
+            Assert.Equal(AppFlowState.SetupAuthenticator, flow.FlowState);
+            flow.ReturnToFirstLaunch();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => flow.CompleteNewVaultAsync(Context.Password, setup, code, key, true));
+            flow.BeginNewVault();
+            setup = flow.PrepareAuthenticator(Context.Password, Context.Password);
+            await flow.CompleteNewVaultAsync(Context.Password, setup, totp.GetCurrentCode(setup.SecretBase32).Code, key, true);
+            Assert.Equal(AppFlowState.Unlocked, flow.FlowState);
+            Assert.False(flow.NeedsRecoveryKey);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task Recovery_requires_each_step_and_never_opens_the_workspace()
+    {
+        using var context = new Context();
+        await context.Flow.LogoutAsync();
+        var config = File.ReadAllBytes(context.Vault.ConfigPath);
+        var payload = File.ReadAllBytes(context.Vault.VaultPath);
+        var setup = context.Flow.CreateAuthenticatorSetup();
+        var request = new RecoveryKeyResetRequest(context.RecoveryKey, Context.ReplacementPassword,
+            RecoveryKeyService.Generate(), true, setup.SecretBase32, "");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => context.Flow.ResetWithRecoveryKeyAsync(request));
+        context.Flow.BeginRecoveryKeyReset();
+        Assert.Equal(AppFlowState.RecoveryKeyValidation, context.Flow.FlowState);
+        Assert.Throws<InvalidOperationException>(() => context.Flow.PrepareRecoveryKeyReset(Context.ReplacementPassword, Context.ReplacementPassword));
+        await Assert.ThrowsAnyAsync<CryptographicException>(() => context.Flow.ValidateRecoveryKeyAsync(RecoveryKeyService.Generate()));
+        Assert.Equal(AppFlowState.RecoveryKeyValidation, context.Flow.FlowState);
+        await context.Flow.ValidateRecoveryKeyAsync(context.RecoveryKey);
+        Assert.Equal(AppFlowState.RecoveryMasterPassword, context.Flow.FlowState);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => context.Flow.GetListItemsAsync());
+        Assert.False(context.Flow.IsSignedIn);
+        Assert.Throws<ArgumentException>(() => context.Flow.PrepareRecoveryKeyReset(Context.ReplacementPassword, "mismatch"));
+        Assert.Equal(AppFlowState.RecoveryMasterPassword, context.Flow.FlowState);
+        context.Flow.PrepareRecoveryKeyReset(Context.ReplacementPassword, Context.ReplacementPassword);
+        Assert.Equal(AppFlowState.RecoveryKeySave, context.Flow.FlowState);
+        Assert.Throws<InvalidOperationException>(() => context.Flow.ConfirmRecoveryKeySaved(false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => context.Flow.ResetWithRecoveryKeyAsync(request));
+        context.Flow.ConfirmRecoveryKeySaved(true);
+        Assert.Equal(AppFlowState.RecoveryAuthenticator, context.Flow.FlowState);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => context.Flow.ResetWithRecoveryKeyAsync(request));
+        Assert.Equal(config, File.ReadAllBytes(context.Vault.ConfigPath));
+        Assert.Equal(payload, File.ReadAllBytes(context.Vault.VaultPath));
+        context.Flow.CancelRecoveryKeyReset();
+        Assert.Equal(AppFlowState.Unlock, context.Flow.FlowState);
+        context.Flow.BeginRecoveryKeyReset();
+        await context.Flow.ValidateRecoveryKeyAsync(context.RecoveryKey);
+        context.Flow.PrepareRecoveryKeyReset(Context.ReplacementPassword, Context.ReplacementPassword);
+        context.Flow.ConfirmRecoveryKeySaved(true);
+        await context.Flow.ResetWithRecoveryKeyAsync(request with { TotpConfirmationCode = context.Totp.GetCurrentCode(setup.SecretBase32).Code });
+        Assert.Equal(AppFlowState.Unlock, context.Flow.FlowState);
+        Assert.False(context.Flow.IsSignedIn);
+        Assert.False(context.Flow.IsVaultSessionActive);
+        Assert.Equal(payload, File.ReadAllBytes(context.Vault.VaultPath));
+        Assert.False((await context.Flow.UnlockAsync(Context.ReplacementPassword, "")).Success);
+        Assert.True((await context.Flow.UnlockAsync(Context.ReplacementPassword, context.Totp.GetCurrentCode(setup.SecretBase32).Code)).Success);
+    }
+
+    [Fact]
+    public async Task Cancelled_recovery_validation_cannot_advance_a_new_wizard()
+    {
+        using var context = new Context();
+        context.Vault.ClearSession();
+        var runner = new HoldFirstResultRunner();
+        var flow = new AppFlowCoordinator(context.Vault, runner, context.Totp);
+        flow.BeginRecoveryKeyReset();
+        var validation = flow.ValidateRecoveryKeyAsync(context.RecoveryKey);
+        await runner.Completed.Task;
+        flow.CancelRecoveryKeyReset();
+        flow.BeginRecoveryKeyReset();
+        runner.Release.SetResult();
+        await Assert.ThrowsAsync<OperationCanceledException>(() => validation);
+        Assert.Equal(AppFlowState.RecoveryKeyValidation, flow.FlowState);
+        Assert.False(flow.IsSignedIn);
+    }
+
+    [Fact]
+    public async Task V3_enrollment_withholds_workspace_until_key_confirmation_and_cancels_on_expiry()
+    {
+        using var context = new Context();
+        var storage = new VaultStorageService(context.Directory);
+        var config = storage.LoadConfig();
+        config.Version = 3;
+        config.RecoveryKeySlot = null;
+        storage.SaveConfig(config);
+        context.Vault.ClearSession();
+        var payload = File.ReadAllBytes(context.Vault.VaultPath);
+        var flow = new AppFlowCoordinator(context.Vault, context.Runner, context.Totp);
+        Assert.True((await flow.UnlockAsync(Context.Password, context.Totp.GetCurrentCode(context.Secret).Code)).Success);
+        Assert.Equal(AppFlowState.SaveRecoveryKey, flow.FlowState);
+        Assert.True(flow.IsVaultSessionActive);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => flow.GetListItemsAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => flow.SaveRecoveryKeyAsync(Context.Password, RecoveryKeyService.Generate(), false));
+        Assert.Equal(AppFlowState.SaveRecoveryKey, flow.FlowState);
+        await flow.SaveRecoveryKeyAsync(Context.Password, RecoveryKeyService.Generate(), true);
+        Assert.Equal(AppFlowState.Unlocked, flow.FlowState);
+        Assert.Equal(payload, File.ReadAllBytes(context.Vault.VaultPath));
+
+        await flow.LockAsync();
+        Assert.True((await flow.UnlockAsync(Context.Password, "")).Success);
+        var before = File.ReadAllBytes(context.Vault.ConfigPath);
+        context.Now = context.Now.AddMinutes(1);
+        await Assert.ThrowsAsync<OperationCanceledException>(() => flow.SaveRecoveryKeyAsync(Context.Password, RecoveryKeyService.Generate(), true));
+        Assert.Equal(before, File.ReadAllBytes(context.Vault.ConfigPath));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Expiry_discards_completed_reads_and_unlocks_before_their_results_are_delivered(bool unlock)
+    {
+        using var context = new Context();
+        if (unlock) context.Vault.LockVault();
+        var runner = new HoldFirstResultRunner();
+        var flow = new AppFlowCoordinator(context.Vault, runner, context.Totp);
+        if (unlock)
+        {
+            var operation = flow.UnlockAsync(Context.Password, "");
+            await runner.Completed.Task;
+            context.Now = context.Now.AddHours(5);
+            runner.Release.SetResult();
+            Assert.False((await operation).Success);
+            Assert.Equal(AppFlowState.Unlock, flow.FlowState);
+        }
+        else
+        {
+            var operation = flow.GetListItemsAsync();
+            await runner.Completed.Task;
+            context.Now = context.Now.AddMinutes(1);
+            runner.Release.SetResult();
+            await Assert.ThrowsAsync<OperationCanceledException>(() => operation);
+        }
+    }
+
+    [Fact]
+    public async Task Duplicate_save_uses_a_new_id_without_history_and_move_trash_restore_preserve_data()
+    {
+        using var context = new Context();
+        var group = context.Vault.AddGroup("Destination");
+        var source = new VaultItem { Title = "Source", Username = "user", Password = "first password", RecoveryCodes = ["account-code-123", "account-code-456"], Tags = ["work"], Notes = "notes", HideNotes = true };
+        source.Id = context.Vault.AddItem(source).Id;
+        source.Password = "second password";
+        context.Vault.UpdateItem(source);
+        await context.Shell.Vault.RefreshAsync();
+        var editorSource = await context.Shell.GetItemForEditingAsync(source.Id);
+        Assert.NotNull(editorSource);
+        var input = new VaultItemEditorInput(null, editorSource.Title + " (copy)", editorSource.Username,
+            editorSource.Password, string.Join('\n', editorSource.RecoveryCodes), editorSource.TotpSecretBase32,
+            editorSource.Url, editorSource.Notes, editorSource.GroupId, string.Join(',', editorSource.Tags),
+            editorSource.IsFavorite, editorSource.HideUrl, editorSource.HideNotes);
+        Assert.Single(context.Vault.GetItems()); // Opening duplicate data does not create an item.
+        Assert.DoesNotContain(editorSource.Password, input.ToString());
+        Assert.True(await context.Shell.SaveItemAsync(input));
+        var duplicate = context.Vault.GetItems().Single(item => item.Title == "Source (copy)");
+        Assert.NotEqual(source.Id, duplicate.Id);
+        Assert.Empty(context.Vault.GetPasswordHistory(duplicate.Id, ""));
+        Assert.Single(context.Vault.GetPasswordHistory(source.Id, ""));
+        await context.Shell.MoveItemToGroupAsync(source.Id, group.Id);
+        var moved = context.Vault.GetItemForEditing(source.Id, "");
+        Assert.Equal(group.Id, moved.GroupId);
+        Assert.Equal("second password", moved.Password);
+        Assert.Equal(["account-code-123", "account-code-456"], moved.RecoveryCodes);
+        Assert.Equal("notes", moved.Notes);
+        Assert.Single(moved.PasswordHistory);
+        await context.Shell.ViewPasswordHistoryAsync(source.Id);
+        Assert.Contains("first password", Assert.Single(context.Dialogs.Secrets));
+        await context.Shell.DeleteItemAsync(source.Id);
+        Assert.Contains(context.Vault.GetDeletedItems(), item => item.Id == source.Id);
+        await context.Shell.Trash.LoadAsync();
+        context.Shell.Trash.SelectedItem = Assert.Single(context.Shell.Trash.Items);
+        await context.Shell.Trash.RestoreSelectedAsync();
+        var restored = context.Vault.GetItemForEditing(source.Id, "");
+        Assert.Equal(group.Id, restored.GroupId);
+        Assert.Single(restored.PasswordHistory);
+        Assert.False(restored.IsDeleted);
+        await context.Shell.DeleteItemAsync(source.Id);
+        await context.Shell.Trash.LoadAsync();
+        context.Shell.Trash.SelectedItem = Assert.Single(context.Shell.Trash.Items);
+        context.Dialogs.Confirmed = false;
+        await context.Shell.Trash.PermanentlyDeleteSelectedAsync();
+        Assert.Single(context.Vault.GetDeletedItems());
+        context.Dialogs.Confirmed = true;
+        await context.Shell.Trash.PermanentlyDeleteSelectedAsync();
+        Assert.Empty(context.Vault.GetDeletedItems());
+        Assert.Contains("Delete permanently", context.Dialogs.ConfirmationTitles);
+    }
+
+    [Fact]
+    public async Task Permanent_delete_confirmation_from_a_previous_unlock_is_discarded()
+    {
+        using var context = new Context();
+        var item = context.Vault.AddItem(new VaultItem { Title = "Trashed", Password = "password" });
+        context.Vault.DeleteItem(item.Id);
+        await context.Shell.Trash.LoadAsync();
+        context.Shell.Trash.SelectedItem = Assert.Single(context.Shell.Trash.Items);
+        context.Dialogs.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var deletion = context.Shell.Trash.PermanentlyDeleteSelectedAsync();
+        await context.Shell.LockCommand.ExecuteAsync(null);
+        await context.Shell.UnlockAsync(Context.Password, "");
+        context.Dialogs.Pending.SetResult(true);
+        await deletion;
+        Assert.Single(context.Vault.GetDeletedItems());
+        Assert.False(context.Shell.Trash.IsErrorOpen);
+    }
+
+    private sealed class Context : IDisposable
+    {
+        public const string Password = "correct horse battery staple";
+        public const string ReplacementPassword = "a replacement strong master password";
+        public string Directory { get; } = Path.Combine(Path.GetTempPath(), "PasswordTool.Presentation.Tests", Guid.NewGuid().ToString("N"));
+        public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+        public TotpService Totp { get; } = new();
+        public string Secret { get; }
+        public string RecoveryKey { get; } = RecoveryKeyService.Generate();
+        public VaultOperationRunner Runner { get; } = new();
+        public Dialogs Dialogs { get; } = new();
+        public VaultService Vault { get; }
+        public AppFlowCoordinator Flow { get; }
+        public ShellViewModel Shell { get; }
+
+        public Context()
+        {
+            Secret = Totp.GenerateSecret();
+            Vault = new(new VaultStorageService(Directory), new EncryptionService(), Totp, utcNow: () => Now);
+            Vault.InitializeNewVault(Password, Secret, Totp.GetCurrentCode(Secret).Code, RecoveryKey, true);
+            Flow = new(Vault, Runner, Totp);
+            var workspace = new VaultWorkspaceViewModel(Flow);
+            var picker = new Picker();
+            var mapper = new UserErrorMapper();
+            Shell = new(Flow, workspace, null!, new SettingsViewModel(Flow, mapper),
+                new BackupViewModel(Flow, picker, Dialogs, mapper, workspace), new SecurityCheckViewModel(Flow, mapper),
+                new TrashViewModel(Flow, Dialogs, mapper, workspace), new NavigationService(), new Clipboard(), picker, mapper, Dialogs);
+        }
+
+        public void Dispose()
+        {
+            Vault.Dispose();
+            Runner.Dispose();
+            if (System.IO.Directory.Exists(Directory)) System.IO.Directory.Delete(Directory, true);
+        }
+    }
+
+    private sealed class HoldFirstResultRunner : IVaultOperationRunner
+    {
+        private int first = 1;
+        public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<T> RunAsync<T>(Func<T> operation, CancellationToken cancellationToken = default)
+        {
+            var result = operation();
+            if (Interlocked.Exchange(ref first, 0) == 1)
+            {
+                Completed.SetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            return result;
+        }
+        public Task RunAsync(Action operation, CancellationToken cancellationToken = default) =>
+            RunAsync(() => { operation(); return true; }, cancellationToken);
+    }
+
+    private sealed class Dialogs : IUserDialogService
+    {
+        public bool Confirmed { get; set; } = true;
+        public TaskCompletionSource<bool>? Pending { get; set; }
+        public List<string> Secrets { get; } = [];
+        public List<string> ConfirmationTitles { get; } = [];
+        public Task<bool> ConfirmAsync(string title, string message, string confirmText, CancellationToken cancellationToken = default)
+        {
+            ConfirmationTitles.Add(title);
+            return Pending?.Task ?? Task.FromResult(Confirmed);
+        }
+        public Task ShowSecretAsync(string title, string value, bool multiline, CancellationToken cancellationToken = default) { Secrets.Add(value); return Task.CompletedTask; }
+        public Task<(string Confirmation, string TotpCode)?> ConfirmGroupDeletionAsync(string groupName, CancellationToken cancellationToken = default) => Task.FromResult<(string, string)?>(null);
+        public Task ShowErrorAsync(string title, string message, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<string?> PromptTotpAsync(string title, string message, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task<string?> PromptBackupPassphraseAsync(string title, string message, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+    }
+
+    private sealed class Clipboard : ISensitiveClipboardService
+    {
+        public Task CopyAsync(string value, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task ClearOwnedValueAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class Picker : IFilePickerService
+    {
+        public Task<string?> PickOpenPathAsync(CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task<string?> PickSavePathAsync(string suggestedFileName, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+    }
+}

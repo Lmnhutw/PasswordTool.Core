@@ -5,16 +5,46 @@
 
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="#EEF2F6" />
+            <SolidColorBrush x:Key="PasswordToolCardBackgroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="PasswordToolDividerBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="VaultTableBackgroundBrush" Color="#FFFFFF" />
+            <StaticResource x:Key="VaultTableHeaderBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
             <SolidColorBrush x:Key="VaultGroupBackgroundBrush" Color="#E6E6E6" />
             <SolidColorBrush x:Key="VaultGroupHoverBrush" Color="#D5D5D5" />
+            <StaticResource x:Key="VaultGroupTabBackgroundBrush" ResourceKey="PasswordToolCardBackgroundBrush" />
+            <StaticResource x:Key="VaultGroupTabTextBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="VaultGroupHoverTextBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="VaultGroupTabBorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
+            <StaticResource x:Key="VaultGroupSelectedBorderBrush" ResourceKey="AccentFillColorDefaultBrush" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
+            <StaticResource x:Key="WorkspaceBackgroundBrush" ResourceKey="ApplicationPageBackgroundThemeBrush" />
+            <StaticResource x:Key="PasswordToolCardBackgroundBrush" ResourceKey="CardBackgroundFillColorDefaultBrush" />
+            <StaticResource x:Key="PasswordToolDividerBrush" ResourceKey="DividerStrokeColorDefaultBrush" />
+            <SolidColorBrush x:Key="VaultTableBackgroundBrush" Color="#2D2D2D" />
+            <StaticResource x:Key="VaultTableHeaderBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
             <SolidColorBrush x:Key="VaultGroupBackgroundBrush" Color="#333333" />
             <SolidColorBrush x:Key="VaultGroupHoverBrush" Color="#454545" />
+            <StaticResource x:Key="VaultGroupTabBackgroundBrush" ResourceKey="PasswordToolCardBackgroundBrush" />
+            <StaticResource x:Key="VaultGroupTabTextBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="VaultGroupHoverTextBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="VaultGroupTabBorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
+            <StaticResource x:Key="VaultGroupSelectedBorderBrush" ResourceKey="AccentFillColorDefaultBrush" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PasswordToolCardBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="PasswordToolDividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="VaultTableBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="VaultTableHeaderBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="VaultGroupBackgroundBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="VaultGroupHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="VaultGroupTabBackgroundBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="VaultGroupTabTextBrush" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="VaultGroupHoverTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="VaultGroupTabBorderBrush" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="VaultGroupSelectedBorderBrush" Color="{ThemeResource SystemColorHighlightColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
@@ -35,8 +65,8 @@
     <Style x:Key="PasswordToolFormStyle" TargetType="StackPanel">
         <Setter Property="Spacing" Value="24" />
         <Setter Property="MaxWidth" Value="960" />
-        <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="Margin" Value="0,0,0,24" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="Margin" Value="24,24,32,24" />
     </Style>
 
     <Style x:Key="PasswordToolHashInputStyle" TargetType="TextBox">
@@ -54,7 +84,7 @@
 
     <Style x:Key="PasswordToolCardStyle" TargetType="Border">
         <Setter Property="Padding" Value="{StaticResource PasswordToolCardPadding}" />
-        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+        <Setter Property="Background" Value="{ThemeResource PasswordToolCardBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource PasswordToolCardCornerRadius}" />
